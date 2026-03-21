@@ -33,6 +33,10 @@ export interface PlatformAdapter {
   publish(options: PublishOptions): Promise<PlatformPublishResult>;
 }
 
+interface ContextOptions {
+  headless?: boolean;
+}
+
 export abstract class BaseAdapter implements PlatformAdapter {
   abstract readonly platform: PlatformId;
 
@@ -91,12 +95,22 @@ export abstract class BaseAdapter implements PlatformAdapter {
     return false;
   }
 
-  protected async withContext<T>(profileDir: string, fn: (context: BrowserContext, page: Page) => Promise<T>) {
+  protected async withContext<T>(
+    profileDir: string,
+    fn: (context: BrowserContext, page: Page) => Promise<T>,
+    options: ContextOptions = {},
+  ) {
     await mkdir(profileDir, { recursive: true });
     const context = await chromium.launchPersistentContext(profileDir, {
-      headless: false,
+      headless: options.headless ?? false,
       viewport: { width: 1440, height: 960 },
-      args: ['--disable-blink-features=AutomationControlled'],
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--no-default-browser-check',
+      ],
     });
 
     const page = context.pages()[0] ?? (await context.newPage());

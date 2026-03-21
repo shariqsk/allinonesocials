@@ -60,7 +60,7 @@ export class XAdapter extends BaseAdapter {
       }
 
       return this.buildConnectedSummary('X account', 'Session is ready for publishing.', page.url());
-    });
+    }, { headless: true });
   }
 
   async publish(options: PublishOptions) {
@@ -82,7 +82,7 @@ export class XAdapter extends BaseAdapter {
         await page.waitForTimeout(2000);
 
         return this.buildSuccess(this.platform, 'Published on X.', page.url());
-      });
+      }, { headless: true });
     } catch (error) {
       return this.buildFailure(
         this.platform,

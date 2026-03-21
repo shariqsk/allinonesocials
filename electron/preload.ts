@@ -11,6 +11,7 @@ import type {
   SaveDraftResult,
   SchedulePostInput,
   SchedulePostResult,
+  SelectAssetsResult,
   SnapshotListener,
   ValidateAccountInput,
 } from '../src/shared/types';
@@ -23,6 +24,8 @@ const api = {
     ipcRenderer.invoke(ipcChannels.validateAccount, input) as Promise<ConnectAccountResult>,
   disconnectAccount: (input: DisconnectAccountInput) =>
     ipcRenderer.invoke(ipcChannels.disconnectAccount, input) as Promise<void>,
+  selectAssets: () =>
+    ipcRenderer.invoke(ipcChannels.selectAssets) as Promise<SelectAssetsResult>,
   saveDraft: (input: SaveDraftInput) =>
     ipcRenderer.invoke(ipcChannels.saveDraft, input) as Promise<SaveDraftResult>,
   publishNow: (input: PublishNowInput) =>

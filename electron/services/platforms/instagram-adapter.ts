@@ -66,7 +66,7 @@ export class InstagramAdapter extends BaseAdapter {
         'Session is ready for publishing.',
         page.url(),
       );
-    });
+    }, { headless: true });
   }
 
   async publish(options: PublishOptions) {
@@ -91,7 +91,7 @@ export class InstagramAdapter extends BaseAdapter {
         await page.waitForTimeout(2500);
 
         return this.buildSuccess(this.platform, 'Published on Instagram.', page.url());
-      });
+      }, { headless: true });
     } catch (error) {
       return this.buildFailure(
         this.platform,

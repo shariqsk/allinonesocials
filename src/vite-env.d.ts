@@ -11,6 +11,7 @@ import type {
   SaveDraftResult,
   SchedulePostInput,
   SchedulePostResult,
+  SelectAssetsResult,
   SnapshotListener,
   ValidateAccountInput,
 } from './shared/types';
@@ -22,6 +23,7 @@ declare global {
       connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
       validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
       disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
+      selectAssets: () => Promise<SelectAssetsResult>;
       saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;
       publishNow: (input: PublishNowInput) => Promise<PublishNowResult>;
       schedulePost: (input: SchedulePostInput) => Promise<SchedulePostResult>;

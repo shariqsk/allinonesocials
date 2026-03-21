@@ -120,6 +120,10 @@ export interface SaveDraftResult {
   draft: DraftRecord;
 }
 
+export interface SelectAssetsResult {
+  assets: ImportedAsset[];
+}
+
 export interface ConnectAccountInput {
   platform: PlatformId;
 }

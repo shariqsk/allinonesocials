@@ -106,21 +106,18 @@ export default function App() {
     );
   }
 
-  function onAssetChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const nextAssets = Array.from(event.target.files ?? [])
-      .map((file) => {
-        const localFile = file as File & { path?: string };
-        return {
-          id: crypto.randomUUID(),
-          path: localFile.path ?? '',
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || 'image/*',
-        } satisfies ImportedAsset;
-      })
-      .filter((asset) => asset.path);
+  async function openAssetPicker() {
+    await runAction('Selecting images', async () => {
+      const result = await window.socialDesk.selectAssets();
+      if (result.assets.length > 0) {
+        setAssets(result.assets);
+        setSuccess(`${result.assets.length} image${result.assets.length === 1 ? '' : 's'} selected.`);
+      }
+    });
+  }
 
-    setAssets(nextAssets);
+  function removeAsset(assetId: string) {
+    setAssets((current) => current.filter((asset) => asset.id !== assetId));
   }
 
   function resetComposer() {
@@ -249,7 +246,8 @@ export default function App() {
             targetStates={targetStates}
             validationMessage={validation.message}
             onBodyChange={setBody}
-            onAssetChange={onAssetChange}
+            onSelectAssets={() => void openAssetPicker()}
+            onRemoveAsset={removeAsset}
             onTogglePlatform={togglePlatform}
             onScheduledForChange={setScheduledFor}
             onSaveDraft={() => void saveDraft()}
@@ -414,7 +412,8 @@ interface ComposerViewProps {
   targetStates: ReturnType<typeof buildTargetStates>;
   validationMessage: string | null;
   onBodyChange: (value: string) => void;
-  onAssetChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onSelectAssets: () => void;
+  onRemoveAsset: (assetId: string) => void;
   onTogglePlatform: (platform: PlatformId) => void;
   onScheduledForChange: (value: string) => void;
   onSaveDraft: () => void;
@@ -431,7 +430,8 @@ function ComposerView(props: ComposerViewProps) {
     targetStates,
     validationMessage,
     onBodyChange,
-    onAssetChange,
+    onSelectAssets,
+    onRemoveAsset,
     onTogglePlatform,
     onScheduledForChange,
     onSaveDraft,
@@ -458,14 +458,30 @@ function ComposerView(props: ComposerViewProps) {
 
         <label className="field-block">
           <span>Images</span>
-          <input type="file" accept="image/*" multiple onChange={onAssetChange} />
+          <div className="asset-picker-row">
+            <button type="button" className="ghost-button" onClick={onSelectAssets}>
+              Choose images
+            </button>
+            <span className="muted-copy">
+              Uses the native file picker so local file paths persist correctly.
+            </span>
+          </div>
         </label>
 
         <div className="asset-list">
           {assets.map((asset) => (
             <div className="asset-chip" key={asset.id}>
-              <strong>{asset.name}</strong>
-              <span>{Math.round(asset.size / 1024)} KB</span>
+              <div>
+                <strong>{asset.name}</strong>
+                <span>{Math.round(asset.size / 1024)} KB</span>
+              </div>
+              <button
+                type="button"
+                className="ghost-button ghost-button-tight"
+                onClick={() => onRemoveAsset(asset.id)}
+              >
+                Remove
+              </button>
             </div>
           ))}
           {assets.length === 0 ? <EmptyState text="No images added yet." compact /> : null}

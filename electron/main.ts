@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import log from 'electron-log/main';
 import { platformDefinitions } from '../src/shared/content';
@@ -86,6 +87,40 @@ function registerIpc(manager: SocialManager) {
   ipcMain.handle(ipcChannels.disconnectAccount, async (_event, payload) =>
     manager.disconnectAccount(disconnectAccountInputSchema.parse(payload)),
   );
+  ipcMain.handle(ipcChannels.selectAssets, async () => {
+    const dialogOptions: OpenDialogOptions = {
+      title: 'Select images',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+        },
+      ],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    if (result.canceled) {
+      return { assets: [] };
+    }
+
+    const assets = await Promise.all(
+      result.filePaths.map(async (filePath) => {
+        const fileStats = await stat(filePath);
+        return {
+          id: crypto.randomUUID(),
+          path: filePath,
+          name: path.basename(filePath),
+          size: fileStats.size,
+          mimeType: getMimeType(filePath),
+        };
+      }),
+    );
+
+    return { assets };
+  });
   ipcMain.handle(ipcChannels.saveDraft, async (_event, payload) =>
     manager.saveDraft(saveDraftInputSchema.parse(payload)),
   );
@@ -116,6 +151,23 @@ app.whenReady()
 process.on('unhandledRejection', (error) => {
   log.error('Unhandled promise rejection in main process', error);
 });
+
+function getMimeType(filePath: string) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.png') {
+    return 'image/png';
+  }
+  if (extension === '.jpg' || extension === '.jpeg') {
+    return 'image/jpeg';
+  }
+  if (extension === '.gif') {
+    return 'image/gif';
+  }
+  if (extension === '.webp') {
+    return 'image/webp';
+  }
+  return 'image/*';
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
