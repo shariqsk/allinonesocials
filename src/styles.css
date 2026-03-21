@@ -252,7 +252,8 @@ textarea {
 .row-actions,
 .result-list,
 .platform-selector,
-.field-row {
+.field-row,
+.composer-mode-row {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -267,6 +268,20 @@ textarea {
 .result-list {
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.result-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.result-message {
+  max-width: 360px;
+  text-align: right;
+  font-size: 0.84rem;
+  color: var(--muted);
 }
 
 .meta-grid {
@@ -312,6 +327,25 @@ textarea {
 
 .platform-selector {
   flex-wrap: wrap;
+}
+
+.composer-mode-row {
+  align-items: stretch;
+}
+
+.mode-button {
+  border: 1px solid rgba(28, 24, 19, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.mode-button-active {
+  background: #18120d;
+  color: #f7efe6;
+  border-color: #18120d;
 }
 
 .asset-picker-row {

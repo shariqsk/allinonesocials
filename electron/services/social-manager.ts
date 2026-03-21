@@ -199,6 +199,26 @@ export class SocialManager {
       }
 
       const adapter = this.registry.get(platform);
+      const session = await adapter.validateSession(secret);
+      if (session.status !== 'connected') {
+        const updatedAccount: PlatformAccount = {
+          ...account,
+          status: session.status,
+          detail: session.detail,
+          updatedAt: nowIso(),
+          lastValidatedAt: nowIso(),
+        };
+        await this.dependencies.database.upsertAccount(updatedAccount);
+        results.push({
+          platform,
+          status: 'failed',
+          message: session.detail,
+          publishedAt: null,
+          postUrl: null,
+        });
+        continue;
+      }
+
       results.push(await adapter.publish({ account, secret, payload: job.payload }));
     }
 

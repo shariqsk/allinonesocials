@@ -11,6 +11,7 @@ import type {
 } from './shared/types';
 
 type View = 'dashboard' | 'accounts' | 'composer' | 'scheduled' | 'history' | 'settings';
+type PublishMode = 'now' | 'schedule';
 
 const navigation: { id: View; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -46,6 +47,7 @@ export default function App() {
   const [body, setBody] = useState('');
   const [assets, setAssets] = useState<ImportedAsset[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>(['x', 'facebook', 'instagram']);
+  const [publishMode, setPublishMode] = useState<PublishMode>('now');
   const [scheduledFor, setScheduledFor] = useState(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm'));
 
   useEffect(() => {
@@ -124,6 +126,7 @@ export default function App() {
     setBody('');
     setAssets([]);
     setSelectedPlatforms(['x', 'facebook', 'instagram']);
+    setPublishMode('now');
     setScheduledFor(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm'));
   }
 
@@ -242,6 +245,7 @@ export default function App() {
             body={body}
             assets={assets}
             selectedPlatforms={selectedPlatforms}
+            publishMode={publishMode}
             scheduledFor={scheduledFor}
             targetStates={targetStates}
             validationMessage={validation.message}
@@ -249,6 +253,7 @@ export default function App() {
             onSelectAssets={() => void openAssetPicker()}
             onRemoveAsset={removeAsset}
             onTogglePlatform={togglePlatform}
+            onPublishModeChange={setPublishMode}
             onScheduledForChange={setScheduledFor}
             onSaveDraft={() => void saveDraft()}
             onPublishNow={() => void publishNow()}
@@ -408,6 +413,7 @@ interface ComposerViewProps {
   body: string;
   assets: ImportedAsset[];
   selectedPlatforms: PlatformId[];
+  publishMode: PublishMode;
   scheduledFor: string;
   targetStates: ReturnType<typeof buildTargetStates>;
   validationMessage: string | null;
@@ -415,6 +421,7 @@ interface ComposerViewProps {
   onSelectAssets: () => void;
   onRemoveAsset: (assetId: string) => void;
   onTogglePlatform: (platform: PlatformId) => void;
+  onPublishModeChange: (mode: PublishMode) => void;
   onScheduledForChange: (value: string) => void;
   onSaveDraft: () => void;
   onPublishNow: () => void;
@@ -426,6 +433,7 @@ function ComposerView(props: ComposerViewProps) {
     body,
     assets,
     selectedPlatforms,
+    publishMode,
     scheduledFor,
     targetStates,
     validationMessage,
@@ -433,6 +441,7 @@ function ComposerView(props: ComposerViewProps) {
     onSelectAssets,
     onRemoveAsset,
     onTogglePlatform,
+    onPublishModeChange,
     onScheduledForChange,
     onSaveDraft,
     onPublishNow,
@@ -445,6 +454,29 @@ function ComposerView(props: ComposerViewProps) {
         <div className="panel-header">
           <h3>Write Once</h3>
           <span>Text + images only in v1</span>
+        </div>
+
+        <div className="composer-mode-row">
+          <button
+            type="button"
+            className={publishMode === 'now' ? 'mode-button mode-button-active' : 'mode-button'}
+            onClick={() => onPublishModeChange('now')}
+          >
+            Post now
+          </button>
+          <button
+            type="button"
+            className={publishMode === 'schedule' ? 'mode-button mode-button-active' : 'mode-button'}
+            onClick={() => onPublishModeChange('schedule')}
+          >
+            Schedule
+          </button>
+        </div>
+
+        <div className="inline-note">
+          {publishMode === 'now'
+            ? 'Post immediately to the selected platforms.'
+            : 'Queue this post for later while the app stays open.'}
         </div>
 
         <label className="field-block">
@@ -500,16 +532,18 @@ function ComposerView(props: ComposerViewProps) {
           ))}
         </div>
 
-        <div className="field-row">
-          <label className="field-block">
-            <span>Schedule for</span>
-            <input
-              type="datetime-local"
-              value={scheduledFor}
-              onChange={(event) => onScheduledForChange(event.target.value)}
-            />
-          </label>
-        </div>
+        {publishMode === 'schedule' ? (
+          <div className="field-row">
+            <label className="field-block">
+              <span>Schedule for</span>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(event) => onScheduledForChange(event.target.value)}
+              />
+            </label>
+          </div>
+        ) : null}
 
         {validationMessage ? <div className="notice notice-error">{validationMessage}</div> : null}
 
@@ -517,12 +551,15 @@ function ComposerView(props: ComposerViewProps) {
           <button type="button" className="ghost-button" onClick={onSaveDraft}>
             Save draft
           </button>
-          <button type="button" className="ghost-button" onClick={onSchedulePost}>
-            Schedule
-          </button>
-          <button type="button" className="primary-button" onClick={onPublishNow}>
-            Publish now
-          </button>
+          {publishMode === 'schedule' ? (
+            <button type="button" className="primary-button" onClick={onSchedulePost}>
+              Schedule post
+            </button>
+          ) : (
+            <button type="button" className="primary-button" onClick={onPublishNow}>
+              Post now
+            </button>
+          )}
         </div>
       </div>
 
@@ -644,18 +681,20 @@ function JobRow({ job }: { job: PublishJob }) {
       </div>
       <div className="result-list">
         {job.results.map((result) => (
-          <span
-            key={`${job.id}-${result.platform}`}
-            className={
-              result.status === 'success'
-                ? 'result-pill result-pill-success'
-                : result.status === 'failed'
-                  ? 'result-pill result-pill-error'
-                  : 'result-pill'
-            }
-          >
-            {platformDefinitions[result.platform].displayName}: {result.status}
-          </span>
+          <div className="result-detail" key={`${job.id}-${result.platform}`}>
+            <span
+              className={
+                result.status === 'success'
+                  ? 'result-pill result-pill-success'
+                  : result.status === 'failed'
+                    ? 'result-pill result-pill-error'
+                    : 'result-pill'
+              }
+            >
+              {platformDefinitions[result.platform].displayName}: {result.status}
+            </span>
+            <span className="result-message">{result.message}</span>
+          </div>
         ))}
       </div>
     </article>
