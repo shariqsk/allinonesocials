@@ -1,4 +1,4 @@
-import { clickFirst, fillFirst, setInputFilesFirst, waitForAnySelector } from './adapter-utils';
+import { clickFirst, fillFirst, setInputFilesFirst } from './adapter-utils';
 import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSummary } from './base';
 
 const facebookSelectors = {
@@ -17,39 +17,49 @@ export class FacebookAdapter extends BaseAdapter {
   protected readonly homeUrl = 'https://www.facebook.com/';
 
   async connect(options: ConnectOptions): Promise<SessionSummary> {
-    return this.withContext(options.profileDir, async (_context, page) => {
-      await page.goto(this.loginUrl, { waitUntil: 'domcontentloaded' });
-      await waitForAnySelector(page, facebookSelectors.loggedInMarkers, 300000);
+    return this.withContext(options.profileDir, async (context, page) => {
+      await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
+      await page.bringToFront();
 
-      return {
-        label: 'Facebook account',
-        detail: 'Connected through a saved browser session.',
-        status: 'connected',
-        lastKnownUrl: page.url(),
-      };
+      const authenticated = await this.waitForAuthenticatedSession(
+        context,
+        page,
+        () => this.isAuthenticated(context, page),
+      );
+
+      if (!authenticated) {
+        return this.buildAttentionSummary(
+          'Facebook account',
+          'Facebook sign-in was not completed. Finish login in the opened browser window, then reconnect.',
+          page.url(),
+        );
+      }
+
+      return this.buildConnectedSummary(
+        'Facebook account',
+        'Connected through a saved Facebook browser session.',
+        page.url(),
+      );
     });
   }
 
   async validateSession(secret: PublishOptions['secret']): Promise<SessionSummary> {
-    return this.withContext(secret.profileDir, async (_context, page) => {
+    return this.withContext(secret.profileDir, async (context, page) => {
       await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
-      const marker = await waitForAnySelector(page, facebookSelectors.loggedInMarkers);
 
-      if (!marker) {
-        return {
-          label: 'Facebook account',
-          detail: 'Login expired or Facebook needs attention.',
-          status: 'attention',
-          lastKnownUrl: page.url(),
-        };
+      if (!(await this.isAuthenticated(context, page))) {
+        return this.buildAttentionSummary(
+          'Facebook account',
+          'Login expired or Facebook needs attention before publishing.',
+          page.url(),
+        );
       }
 
-      return {
-        label: 'Facebook account',
-        detail: 'Session is ready for publishing.',
-        status: 'connected',
-        lastKnownUrl: page.url(),
-      };
+      return this.buildConnectedSummary(
+        'Facebook account',
+        'Session is ready for publishing.',
+        page.url(),
+      );
     });
   }
 
@@ -80,5 +90,18 @@ export class FacebookAdapter extends BaseAdapter {
         error instanceof Error ? error.message : 'Facebook publishing failed.',
       );
     }
+  }
+
+  private async isAuthenticated(context: PublishOptions['secret'] extends never ? never : import('playwright').BrowserContext, page: import('playwright').Page) {
+    const hasCookies = await this.hasCookies(context, ['c_user', 'xs'], [
+      this.homeUrl,
+      this.loginUrl,
+    ]);
+
+    if (hasCookies) {
+      return true;
+    }
+
+    return this.hasVisibleMarker(page, facebookSelectors.loggedInMarkers);
   }
 }

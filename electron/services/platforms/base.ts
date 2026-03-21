@@ -46,11 +46,57 @@ export abstract class BaseAdapter implements PlatformAdapter {
 
   abstract publish(options: PublishOptions): Promise<PlatformPublishResult>;
 
+  protected async waitForAuthenticatedSession(
+    context: BrowserContext,
+    page: Page,
+    isAuthenticated: () => Promise<boolean>,
+    timeoutMs = 300_000,
+  ) {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      if (page.isClosed()) {
+        break;
+      }
+
+      if (await isAuthenticated()) {
+        return true;
+      }
+
+      await page.waitForTimeout(1000);
+    }
+
+    return false;
+  }
+
+  protected async hasCookies(context: BrowserContext, names: string[], urls: string[]) {
+    const cookies = await context.cookies(urls);
+    return names.every((name) => cookies.some((cookie) => cookie.name === name && Boolean(cookie.value)));
+  }
+
+  protected async hasVisibleMarker(page: Page, selectors: string[]) {
+    for (const selector of selectors) {
+      const locator = page.locator(selector).first();
+      if (await locator.count()) {
+        try {
+          if (await locator.isVisible()) {
+            return true;
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return false;
+  }
+
   protected async withContext<T>(profileDir: string, fn: (context: BrowserContext, page: Page) => Promise<T>) {
     await mkdir(profileDir, { recursive: true });
     const context = await chromium.launchPersistentContext(profileDir, {
       headless: false,
       viewport: { width: 1440, height: 960 },
+      args: ['--disable-blink-features=AutomationControlled'],
     });
 
     const page = context.pages()[0] ?? (await context.newPage());
@@ -79,6 +125,24 @@ export abstract class BaseAdapter implements PlatformAdapter {
       message,
       publishedAt: null,
       postUrl: null,
+    };
+  }
+
+  protected buildConnectedSummary(label: string, detail: string, lastKnownUrl: string | null): SessionSummary {
+    return {
+      label,
+      detail,
+      status: 'connected',
+      lastKnownUrl,
+    };
+  }
+
+  protected buildAttentionSummary(label: string, detail: string, lastKnownUrl: string | null): SessionSummary {
+    return {
+      label,
+      detail,
+      status: 'attention',
+      lastKnownUrl,
     };
   }
 }

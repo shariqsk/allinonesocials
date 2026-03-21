@@ -1,54 +1,65 @@
-import { clickFirst, fillFirst, setInputFilesFirst, waitForAnySelector } from './adapter-utils';
+import { clickFirst, fillFirst, setInputFilesFirst } from './adapter-utils';
 import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSummary } from './base';
 
 const xSelectors = {
   composer: ['div[role="textbox"][data-testid="tweetTextarea_0"]', 'div[role="textbox"]'],
   fileInput: ['input[data-testid="fileInput"]', 'input[type="file"]'],
   postButton: ['button[data-testid="tweetButton"]', 'div[data-testid="tweetButtonInline"]'],
-  loggedInMarkers: ['a[data-testid="SideNav_NewTweet_Button"]', 'a[aria-label="Profile"]'],
+  loggedInMarkers: [
+    'a[data-testid="SideNav_NewTweet_Button"]',
+    '[data-testid="AppTabBar_Home_Link"]',
+    '[data-testid="SideNav_AccountSwitcher_Button"]',
+    'button[aria-label="Account menu"]',
+  ],
 };
 
 export class XAdapter extends BaseAdapter {
   readonly platform = 'x' as const;
 
-  protected readonly loginUrl = 'https://x.com/i/flow/login';
+  protected readonly loginUrl = 'https://x.com/home';
 
   protected readonly homeUrl = 'https://x.com/home';
 
   async connect(options: ConnectOptions): Promise<SessionSummary> {
-    return this.withContext(options.profileDir, async (_context, page) => {
+    return this.withContext(options.profileDir, async (context, page) => {
       await page.goto(this.loginUrl, { waitUntil: 'domcontentloaded' });
-      await waitForAnySelector(page, xSelectors.loggedInMarkers, 300000);
+      await page.bringToFront();
 
-      return {
-        label: 'X account',
-        detail: 'Connected through a saved browser session.',
-        status: 'connected',
-        lastKnownUrl: page.url(),
-      };
+      const authenticated = await this.waitForAuthenticatedSession(
+        context,
+        page,
+        () => this.isAuthenticated(context, page),
+      );
+
+      if (!authenticated) {
+        return this.buildAttentionSummary(
+          'X account',
+          'X sign-in was not completed. Finish login in the opened browser window, then reconnect.',
+          page.url(),
+        );
+      }
+
+      return this.buildConnectedSummary(
+        'X account',
+        'Connected through a saved X browser session.',
+        page.url(),
+      );
     });
   }
 
   async validateSession(secret: PublishOptions['secret']): Promise<SessionSummary> {
-    return this.withContext(secret.profileDir, async (_context, page) => {
+    return this.withContext(secret.profileDir, async (context, page) => {
       await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
-      const marker = await waitForAnySelector(page, xSelectors.loggedInMarkers);
 
-      if (!marker) {
-        return {
-          label: 'X account',
-          detail: 'Login expired. Reconnect this account before publishing.',
-          status: 'attention',
-          lastKnownUrl: page.url(),
-        };
+      if (!(await this.isAuthenticated(context, page))) {
+        return this.buildAttentionSummary(
+          'X account',
+          'Login expired or X blocked the session. Reconnect before publishing.',
+          page.url(),
+        );
       }
 
-      return {
-        label: 'X account',
-        detail: 'Session is ready for publishing.',
-        status: 'connected',
-        lastKnownUrl: page.url(),
-      };
+      return this.buildConnectedSummary('X account', 'Session is ready for publishing.', page.url());
     });
   }
 
@@ -78,5 +89,18 @@ export class XAdapter extends BaseAdapter {
         error instanceof Error ? error.message : 'X publishing failed.',
       );
     }
+  }
+
+  private async isAuthenticated(context: PublishOptions['secret'] extends never ? never : import('playwright').BrowserContext, page: import('playwright').Page) {
+    const hasCookies = await this.hasCookies(context, ['auth_token', 'ct0'], [
+      this.homeUrl,
+      'https://x.com/',
+    ]);
+
+    if (hasCookies) {
+      return true;
+    }
+
+    return this.hasVisibleMarker(page, xSelectors.loggedInMarkers);
   }
 }
