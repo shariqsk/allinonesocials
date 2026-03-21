@@ -1,0 +1,29 @@
+/// <reference types="vite/client" />
+
+import type {
+  AppSnapshot,
+  ConnectAccountInput,
+  ConnectAccountResult,
+  DisconnectAccountInput,
+  PublishNowInput,
+  PublishNowResult,
+  SaveDraftInput,
+  SaveDraftResult,
+  SchedulePostInput,
+  SchedulePostResult,
+  SnapshotListener,
+  ValidateAccountInput,
+} from './shared/types';
+
+interface Window {
+  socialDesk: {
+    getSnapshot: () => Promise<AppSnapshot>;
+    connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
+    validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
+    disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
+    saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;
+    publishNow: (input: PublishNowInput) => Promise<PublishNowResult>;
+    schedulePost: (input: SchedulePostInput) => Promise<SchedulePostResult>;
+    subscribeToSnapshot: (listener: SnapshotListener) => () => void;
+  };
+}

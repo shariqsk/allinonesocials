@@ -1,0 +1,57 @@
+{
+  "name": "allinonesocials",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first desktop social media manager powered by Electron, React, and Playwright automation.",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shariqsk/allinonesocials.git"
+  },
+  "keywords": [
+    "electron",
+    "react",
+    "playwright",
+    "social-media"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/shariqsk/allinonesocials/issues"
+  },
+  "homepage": "https://github.com/shariqsk/allinonesocials#readme",
+  "dependencies": {
+    "dayjs": "^1.11.20",
+    "electron-log": "^5.4.3",
+    "playwright": "^1.58.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "sql.js": "^1.14.1",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "^41.0.3",
+    "jsdom": "^29.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.1",
+    "vite-plugin-electron": "^0.29.1",
+    "vitest": "^4.1.0"
+  }
+}
