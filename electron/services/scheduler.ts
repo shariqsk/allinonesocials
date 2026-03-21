@@ -29,17 +29,18 @@ export class SchedulerService {
   async tick() {
     const now = new Date().toISOString();
     const dueJobs = this.database.getDueJobs(now);
+    const uniqueDueJobIds = Array.from(new Set(dueJobs.map((job) => job.id)));
 
-    for (const job of dueJobs) {
-      if (this.runningJobs.has(job.id)) {
+    for (const jobId of uniqueDueJobIds) {
+      if (this.runningJobs.has(jobId)) {
         continue;
       }
 
-      this.runningJobs.add(job.id);
+      this.runningJobs.add(jobId);
       try {
-        await this.runner(job.id);
+        await this.runner(jobId);
       } finally {
-        this.runningJobs.delete(job.id);
+        this.runningJobs.delete(jobId);
       }
     }
 

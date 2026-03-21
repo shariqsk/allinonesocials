@@ -15,15 +15,19 @@ import type {
   ValidateAccountInput,
 } from './shared/types';
 
-interface Window {
-  socialDesk: {
-    getSnapshot: () => Promise<AppSnapshot>;
-    connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
-    validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
-    disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
-    saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;
-    publishNow: (input: PublishNowInput) => Promise<PublishNowResult>;
-    schedulePost: (input: SchedulePostInput) => Promise<SchedulePostResult>;
-    subscribeToSnapshot: (listener: SnapshotListener) => () => void;
-  };
+declare global {
+  interface Window {
+    socialDesk: {
+      getSnapshot: () => Promise<AppSnapshot>;
+      connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
+      validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
+      disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
+      saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;
+      publishNow: (input: PublishNowInput) => Promise<PublishNowResult>;
+      schedulePost: (input: SchedulePostInput) => Promise<SchedulePostResult>;
+      subscribeToSnapshot: (listener: SnapshotListener) => () => void;
+    };
+  }
 }
+
+export {};

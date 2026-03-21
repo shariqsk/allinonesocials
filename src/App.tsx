@@ -51,7 +51,7 @@ export default function App() {
   useEffect(() => {
     void loadSnapshot();
 
-    const unsubscribe = window.socialDesk.subscribeToSnapshot((nextSnapshot) => {
+    const unsubscribe = window.socialDesk.subscribeToSnapshot((nextSnapshot: AppSnapshot) => {
       setSnapshot(nextSnapshot);
     });
 

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import initSqlJs from 'sql.js';
-import type { Database as SqlDatabase, SqlJsStatic } from 'sql.js';
+import type { Database as SqlDatabase, SqlJsStatic, SqlValue } from 'sql.js';
 import type {
   AppSnapshot,
   ComposerInput,
@@ -53,7 +53,7 @@ export class DatabaseService {
     await mkdir(path.dirname(this.dbPath), { recursive: true });
 
     this.sql = await initSqlJs({
-      locateFile: (file) =>
+      locateFile: (file: string) =>
         path.join(path.dirname(require.resolve('sql.js/package.json')), 'dist', file),
     });
 
@@ -104,7 +104,7 @@ export class DatabaseService {
     `);
   }
 
-  private query<T extends Record<string, unknown>>(sql: string, params: unknown[] = []) {
+  private query<T extends Record<string, unknown>>(sql: string, params: SqlValue[] = []) {
     const statement = this.db.prepare(sql, params);
     const rows: T[] = [];
 
@@ -221,8 +221,11 @@ export class DatabaseService {
     }>(`SELECT * FROM drafts ORDER BY updated_at DESC`).map((row) => ({
       id: row.id,
       body: row.body,
-      assets: parseJson(row.assets_json, []),
-      selectedPlatforms: parseJson(row.selected_platforms_json, []),
+      assets: parseJson<DraftRecord['assets']>(row.assets_json, []),
+      selectedPlatforms: parseJson<DraftRecord['selectedPlatforms']>(
+        row.selected_platforms_json,
+        [],
+      ),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -303,13 +306,17 @@ export class DatabaseService {
     }>(`SELECT * FROM jobs ORDER BY created_at DESC`).map((row) => ({
       id: row.id,
       draftId: row.draft_id,
-      payload: parseJson(row.payload_json, { body: '', assets: [], selectedPlatforms: [] }),
+      payload: parseJson<ComposerInput>(row.payload_json, {
+        body: '',
+        assets: [],
+        selectedPlatforms: [],
+      }),
       scheduledFor: row.scheduled_for,
       status: row.status as PublishJob['status'],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       finishedAt: row.finished_at,
-      results: parseJson(row.results_json, []),
+      results: parseJson<PublishJob['results']>(row.results_json, []),
     }));
   }
 
