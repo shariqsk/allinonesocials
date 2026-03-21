@@ -99,6 +99,50 @@ export class SocialManager {
     return { account: updated };
   }
 
+  async validateAllAccounts() {
+    const accounts = this.dependencies.database.listAccounts();
+
+    for (const account of accounts) {
+      const secret = this.dependencies.secureStore.getAccountSecret(account.id);
+      if (!secret) {
+        const updated: PlatformAccount = {
+          ...account,
+          status: 'attention',
+          detail: 'Local session data is missing. Reconnect this account.',
+          updatedAt: nowIso(),
+          lastValidatedAt: nowIso(),
+        };
+        await this.dependencies.database.upsertAccount(updated);
+        continue;
+      }
+
+      try {
+        const adapter = this.registry.get(account.platform);
+        const session = await adapter.validateSession(secret);
+        const updated: PlatformAccount = {
+          ...account,
+          label: session.label,
+          status: session.status,
+          detail: session.detail,
+          updatedAt: nowIso(),
+          lastValidatedAt: nowIso(),
+        };
+        await this.dependencies.database.upsertAccount(updated);
+      } catch {
+        const updated: PlatformAccount = {
+          ...account,
+          status: 'attention',
+          detail: 'This saved session could not be validated. Reconnect this account.',
+          updatedAt: nowIso(),
+          lastValidatedAt: nowIso(),
+        };
+        await this.dependencies.database.upsertAccount(updated);
+      }
+    }
+
+    this.dependencies.onSnapshot();
+  }
+
   async disconnectAccount(input: DisconnectAccountInput) {
     const secret = this.dependencies.secureStore.getAccountSecret(input.accountId);
     await this.dependencies.database.deleteAccount(input.accountId);

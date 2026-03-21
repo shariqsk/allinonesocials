@@ -5,6 +5,7 @@ import type {
   AppSnapshot,
   ComposerInput,
   ImportedAsset,
+  AccountStatus,
   PlatformAccount,
   PlatformId,
   PublishJob,
@@ -71,6 +72,25 @@ export default function App() {
 
   const validation = useMemo(() => validateComposer(composerInput), [composerInput]);
   const targetStates = useMemo(() => buildTargetStates(composerInput), [composerInput]);
+  const primaryAccounts = useMemo(() => buildPrimaryAccounts(snapshot.accounts), [snapshot.accounts]);
+  const connectedPlatformIds = useMemo(
+    () =>
+      (Object.entries(primaryAccounts) as Array<[PlatformId, PlatformAccount | undefined]>)
+        .filter(([, account]) => account?.status === 'connected')
+        .map(([platform]) => platform),
+    [primaryAccounts],
+  );
+
+  useEffect(() => {
+    const allowed = connectedPlatformIds.filter((platform) => platformDefinitions[platform].enabled);
+    setSelectedPlatforms((current) => {
+      const next = current.filter((platform) => allowed.includes(platform));
+      if (next.length > 0) {
+        return next;
+      }
+      return allowed;
+    });
+  }, [connectedPlatformIds]);
 
   async function loadSnapshot() {
     setLoading(true);
@@ -234,7 +254,7 @@ export default function App() {
         {view === 'dashboard' ? <DashboardView snapshot={snapshot} /> : null}
         {view === 'accounts' ? (
           <AccountsView
-            accounts={snapshot.accounts}
+            accounts={primaryAccounts}
             onConnect={connectPlatform}
             onValidate={validateAccount}
             onDisconnect={disconnectAccount}
@@ -245,6 +265,8 @@ export default function App() {
             body={body}
             assets={assets}
             selectedPlatforms={selectedPlatforms}
+            connectedPlatforms={connectedPlatformIds}
+            accountStatuses={buildAccountStatuses(primaryAccounts)}
             publishMode={publishMode}
             scheduledFor={scheduledFor}
             targetStates={targetStates}
@@ -337,7 +359,7 @@ function AccountsView({
   onValidate,
   onDisconnect,
 }: {
-  accounts: PlatformAccount[];
+  accounts: Record<PlatformId, PlatformAccount | undefined>;
   onConnect: (platform: PlatformId) => void;
   onValidate: (accountId: string) => void;
   onDisconnect: (accountId: string) => void;
@@ -357,7 +379,9 @@ function AccountsView({
 
       <div className="account-grid">
         {Object.values(platformDefinitions).map((platform) => {
-          const platformAccounts = accounts.filter((account) => account.platform === platform.id);
+          const account = accounts[platform.id];
+          const isConnected = account?.status === 'connected';
+          const canConnect = platform.enabled && !isConnected;
           return (
             <article className="panel" key={platform.id}>
               <div className="panel-header">
@@ -365,25 +389,40 @@ function AccountsView({
                   <p className="eyebrow">{platform.badge}</p>
                   <h3>{platform.displayName}</h3>
                 </div>
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={() => onConnect(platform.id)}
-                  disabled={!platform.enabled}
-                >
-                  {platform.enabled ? 'Connect account' : 'Scaffolded only'}
-                </button>
+                <div className="row-actions">
+                  {account ? <StatusPill status={account.status} /> : null}
+                  {!platform.enabled ? (
+                    <button type="button" className="ghost-button" disabled>
+                      Scaffolded only
+                    </button>
+                  ) : canConnect ? (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => onConnect(platform.id)}
+                    >
+                      Connect account
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => onConnect(platform.id)}
+                    >
+                      Reconnect
+                    </button>
+                  )}
+                </div>
               </div>
               <p className="muted-copy">{platform.description}</p>
               <div className="table-list">
-                {platformAccounts.map((account) => (
+                {account ? (
                   <div className="row-card" key={account.id}>
                     <div>
                       <strong>{account.label}</strong>
                       <p>{account.detail}</p>
                     </div>
                     <div className="row-actions">
-                      <StatusPill status={account.status} />
                       <button type="button" className="ghost-button" onClick={() => onValidate(account.id)}>
                         Check
                       </button>
@@ -396,10 +435,9 @@ function AccountsView({
                       </button>
                     </div>
                   </div>
-                ))}
-                {platformAccounts.length === 0 ? (
+                ) : (
                   <EmptyState text={`No ${platform.displayName} accounts connected yet.`} />
-                ) : null}
+                )}
               </div>
             </article>
           );
@@ -413,6 +451,8 @@ interface ComposerViewProps {
   body: string;
   assets: ImportedAsset[];
   selectedPlatforms: PlatformId[];
+  connectedPlatforms: PlatformId[];
+  accountStatuses: Record<PlatformId, AccountStatus>;
   publishMode: PublishMode;
   scheduledFor: string;
   targetStates: ReturnType<typeof buildTargetStates>;
@@ -433,6 +473,8 @@ function ComposerView(props: ComposerViewProps) {
     body,
     assets,
     selectedPlatforms,
+    connectedPlatforms,
+    accountStatuses,
     publishMode,
     scheduledFor,
     targetStates,
@@ -526,11 +568,17 @@ function ComposerView(props: ComposerViewProps) {
                 type="checkbox"
                 checked={selectedPlatforms.includes(platform.id)}
                 onChange={() => onTogglePlatform(platform.id)}
+                disabled={!connectedPlatforms.includes(platform.id)}
               />
               <span>{platform.displayName}</span>
             </label>
           ))}
         </div>
+        {connectedPlatforms.length === 0 ? (
+          <div className="notice notice-error">
+            Connect at least one platform in Accounts before posting from the composer.
+          </div>
+        ) : null}
 
         {publishMode === 'schedule' ? (
           <div className="field-row">
@@ -577,7 +625,22 @@ function ComposerView(props: ComposerViewProps) {
                   <p className="eyebrow">{platformDefinitions[target.platform].badge}</p>
                   <h3>{target.displayName}</h3>
                 </div>
-                <StatusPill status={target.enabled ? 'connected' : 'attention'} />
+                <StatusPill
+                  status={
+                    accountStatuses[target.platform] === 'connected'
+                      ? target.enabled
+                        ? 'connected'
+                        : 'attention'
+                      : accountStatuses[target.platform]
+                  }
+                  label={
+                    accountStatuses[target.platform] === 'connected'
+                      ? target.enabled
+                        ? 'ready'
+                        : 'needs changes'
+                      : accountStatuses[target.platform]
+                  }
+                />
               </div>
               <p>{body || 'Your draft text will preview here.'}</p>
               <div className="meta-grid">
@@ -588,8 +651,16 @@ function ComposerView(props: ComposerViewProps) {
                     : `${target.remainingCharacters} chars left`}
                 </span>
               </div>
-              <div className={target.enabled ? 'inline-note' : 'inline-note inline-note-error'}>
-                {target.reason ?? 'Ready to publish.'}
+              <div
+                className={
+                  accountStatuses[target.platform] === 'connected' && target.enabled
+                    ? 'inline-note'
+                    : 'inline-note inline-note-error'
+                }
+              >
+                {accountStatuses[target.platform] !== 'connected'
+                  ? 'No validated account is connected for this platform.'
+                  : target.reason ?? 'Ready to publish.'}
               </div>
             </article>
           ))}
@@ -729,4 +800,32 @@ function getErrorMessage(error: unknown) {
   }
 
   return 'An unexpected error occurred.';
+}
+
+function buildPrimaryAccounts(accounts: PlatformAccount[]) {
+  const result: Record<PlatformId, PlatformAccount | undefined> = {
+    x: undefined,
+    facebook: undefined,
+    instagram: undefined,
+    tiktok: undefined,
+  };
+
+  for (const platform of Object.keys(result) as PlatformId[]) {
+    const candidates = accounts.filter((account) => account.platform === platform);
+    result[platform] =
+      candidates.find((account) => account.status === 'connected') ??
+      candidates.find((account) => account.status === 'attention') ??
+      candidates[0];
+  }
+
+  return result;
+}
+
+function buildAccountStatuses(accounts: Record<PlatformId, PlatformAccount | undefined>) {
+  return {
+    x: accounts.x?.status ?? 'disconnected',
+    facebook: accounts.facebook?.status ?? 'disconnected',
+    instagram: accounts.instagram?.status ?? 'disconnected',
+    tiktok: accounts.tiktok?.status ?? 'disconnected',
+  } satisfies Record<PlatformId, AccountStatus>;
 }

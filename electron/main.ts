@@ -52,6 +52,7 @@ async function bootstrap() {
 
   await scheduler.start();
   registerIpc(manager);
+  void manager.validateAllAccounts();
 }
 
 function createMainWindow() {
