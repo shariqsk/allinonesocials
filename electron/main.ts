@@ -17,6 +17,7 @@ import { SecureStore } from './services/secure-store';
 import { SocialManager } from './services/social-manager';
 
 log.initialize();
+log.errorHandler.startCatching();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -96,15 +97,24 @@ function registerIpc(manager: SocialManager) {
   );
 }
 
-app.whenReady().then(async () => {
-  await bootstrap();
-  createMainWindow();
+app.whenReady()
+  .then(async () => {
+    await bootstrap();
+    createMainWindow();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  })
+  .catch((error) => {
+    log.error('Failed to bootstrap Social Desk', error);
+    app.quit();
   });
+
+process.on('unhandledRejection', (error) => {
+  log.error('Unhandled promise rejection in main process', error);
 });
 
 app.on('window-all-closed', () => {

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import initSqlJs from 'sql.js';
 import type { Database as SqlDatabase, SqlJsStatic, SqlValue } from 'sql.js';
 import type {
@@ -13,7 +14,9 @@ import type {
   PublishJob,
 } from '../../src/shared/types';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(
+  typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url),
+);
 
 function nowIso() {
   return new Date().toISOString();
@@ -53,8 +56,13 @@ export class DatabaseService {
     await mkdir(path.dirname(this.dbPath), { recursive: true });
 
     this.sql = await initSqlJs({
-      locateFile: (file: string) =>
-        path.join(path.dirname(require.resolve('sql.js/package.json')), 'dist', file),
+      locateFile: (file: string) => {
+        try {
+          return require.resolve(`sql.js/dist/${file}`);
+        } catch {
+          return path.join(path.dirname(require.resolve('sql.js/dist/sql-wasm.wasm')), file);
+        }
+      },
     });
 
     const existing = await readFile(this.dbPath).catch(() => null);
