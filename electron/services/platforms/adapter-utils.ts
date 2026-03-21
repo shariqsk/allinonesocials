@@ -3,14 +3,12 @@ import type { Locator, Page } from 'playwright';
 export async function clickFirst(page: Page, selectors: string[], timeout = 1500) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
-    if (await locator.count()) {
-      try {
-        await locator.waitFor({ state: 'visible', timeout });
-        await locator.click({ timeout });
-        return selector;
-      } catch {
-        continue;
-      }
+    try {
+      await locator.waitFor({ state: 'visible', timeout });
+      await locator.click({ timeout });
+      return selector;
+    } catch {
+      continue;
     }
   }
 
@@ -20,14 +18,12 @@ export async function clickFirst(page: Page, selectors: string[], timeout = 1500
 export async function fillFirst(page: Page, selectors: string[], value: string, timeout = 1500) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
-    if (await locator.count()) {
-      try {
-        await locator.waitFor({ state: 'visible', timeout });
-        await writeValue(locator, value);
-        return selector;
-      } catch {
-        continue;
-      }
+    try {
+      await locator.waitFor({ state: 'visible', timeout });
+      await writeValue(locator, value);
+      return selector;
+    } catch {
+      continue;
     }
   }
 
@@ -37,14 +33,12 @@ export async function fillFirst(page: Page, selectors: string[], value: string, 
 export async function setInputFilesFirst(page: Page, selectors: string[], files: string[], timeout = 2000) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
-    if (await locator.count()) {
-      try {
-        await locator.waitFor({ state: 'attached', timeout });
-        await locator.setInputFiles(files, { timeout });
-        return selector;
-      } catch {
-        continue;
-      }
+    try {
+      await locator.waitFor({ state: 'attached', timeout });
+      await locator.setInputFiles(files, { timeout });
+      return selector;
+    } catch {
+      continue;
     }
   }
 

@@ -9,7 +9,7 @@ const instagramSelectors = {
     'svg[aria-label="Home"]',
   ],
   createButton: ['a[href="/create/select/"]', '[aria-label="New post"]'],
-  fileInput: ['input[type="file"]'],
+  fileInput: ['input[type="file"]', 'input[accept*="image"]', 'input[multiple]'],
   nextButton: ['text=Next'],
   caption: ['textarea[aria-label="Write a caption..."]', 'textarea'],
   shareButton: ['text=Share'],
@@ -76,14 +76,25 @@ export class InstagramAdapter extends BaseAdapter {
 
     try {
       return await this.withContext(options.secret.profileDir, async (_context, page) => {
-        await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
-        await clickFirst(page, instagramSelectors.createButton, 4000);
-        await setInputFilesFirst(
-          page,
-          instagramSelectors.fileInput,
-          options.payload.assets.map((asset) => asset.path),
-          4000,
-        );
+        const files = options.payload.assets.map((asset) => asset.path);
+
+        await page.goto('https://www.instagram.com/create/select/', {
+          waitUntil: 'domcontentloaded',
+        });
+
+        const uploadSelector = await trySetInstagramFiles(page, files);
+        if (!uploadSelector) {
+          await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
+          await clickFirst(page, instagramSelectors.createButton, 6000);
+
+          const fallbackSelector = await trySetInstagramFiles(page, files);
+          if (!fallbackSelector) {
+            throw new Error(
+              `Could not find an Instagram upload input after opening the create flow. Tried selectors: ${instagramSelectors.fileInput.join(', ')}`,
+            );
+          }
+        }
+
         await clickFirst(page, instagramSelectors.nextButton, 4000);
         await clickFirst(page, instagramSelectors.nextButton, 4000);
         await fillFirst(page, instagramSelectors.caption, options.payload.body, 4000);
@@ -111,5 +122,13 @@ export class InstagramAdapter extends BaseAdapter {
     }
 
     return this.hasVisibleMarker(page, instagramSelectors.loggedInMarkers);
+  }
+}
+
+async function trySetInstagramFiles(page: import('playwright').Page, files: string[]) {
+  try {
+    return await setInputFilesFirst(page, instagramSelectors.fileInput, files, 8000);
+  } catch {
+    return null;
   }
 }
