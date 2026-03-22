@@ -71,7 +71,7 @@ export class InstagramAdapter extends BaseAdapter {
 
   async publish(options: PublishOptions) {
     if (options.payload.assets.length === 0) {
-      return this.buildFailure(this.platform, 'Instagram publishing requires at least one image.');
+      return this.buildFailure(this.platform, 'Instagram publishing requires at least one image or video.');
     }
 
     try {

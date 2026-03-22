@@ -497,7 +497,7 @@ function ComposerView(props: ComposerViewProps) {
       <div className="panel composer-panel">
         <div className="panel-header">
           <h3>Write Once</h3>
-          <span>Text + images only in v1</span>
+          <span>Text, images, or a single video</span>
         </div>
 
         <div className="composer-mode-row">

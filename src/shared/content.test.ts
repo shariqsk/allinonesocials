@@ -15,7 +15,7 @@ describe('normalizeComposerInput', () => {
 });
 
 describe('buildTargetStates', () => {
-  it('blocks Instagram when no images are attached', () => {
+  it('blocks Instagram when no media is attached', () => {
     const targets = buildTargetStates({
       body: 'Caption only',
       assets: [],
@@ -23,7 +23,35 @@ describe('buildTargetStates', () => {
     });
 
     expect(targets[0]?.enabled).toBe(false);
-    expect(targets[0]?.reason).toContain('requires at least 1 image');
+    expect(targets[0]?.reason).toContain('requires at least 1 media');
+  });
+
+  it('blocks mixed media on X', () => {
+    const targets = buildTargetStates({
+      body: 'Mixed upload',
+      assets: [
+        {
+          id: 'asset-1',
+          path: '/tmp/pic.png',
+          name: 'pic.png',
+          size: 100,
+          mimeType: 'image/png',
+          mediaKind: 'image',
+        },
+        {
+          id: 'asset-2',
+          path: '/tmp/clip.mp4',
+          name: 'clip.mp4',
+          size: 200,
+          mimeType: 'video/mp4',
+          mediaKind: 'video',
+        },
+      ],
+      selectedPlatforms: ['x'],
+    });
+
+    expect(targets[0]?.enabled).toBe(false);
+    expect(targets[0]?.reason).toContain('does not support mixing images and videos');
   });
 });
 
@@ -38,6 +66,7 @@ describe('validateComposer', () => {
           name: 'launch.png',
           size: 1234,
           mimeType: 'image/png',
+          mediaKind: 'image',
         },
       ],
       selectedPlatforms: ['tiktok'],

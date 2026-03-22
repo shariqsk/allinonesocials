@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { platformIds } from './types';
 
 export const platformIdSchema = z.enum(platformIds);
+export const mediaKindSchema = z.enum(['image', 'video']);
 
 export const importedAssetSchema = z.object({
   id: z.string().min(1),
@@ -9,6 +10,7 @@ export const importedAssetSchema = z.object({
   name: z.string().min(1),
   size: z.number().nonnegative(),
   mimeType: z.string().min(1),
+  mediaKind: mediaKindSchema,
 });
 
 export const composerInputSchema = z.object({
