@@ -40,6 +40,9 @@ interface ContextOptions {
   headless?: boolean;
   background?: boolean;
   signal?: AbortSignal;
+  userAgent?: string;
+  extraHTTPHeaders?: Record<string, string>;
+  ignoreDefaultArgs?: string[];
 }
 
 interface DebugCapture {
@@ -116,6 +119,9 @@ export abstract class BaseAdapter implements PlatformAdapter {
     const context = await chromium.launchPersistentContext(profileDir, {
       headless: options.headless ?? false,
       viewport: { width: 1440, height: 960 },
+      userAgent: options.userAgent,
+      extraHTTPHeaders: options.extraHTTPHeaders,
+      ignoreDefaultArgs: options.ignoreDefaultArgs,
       args: [
         '--disable-blink-features=AutomationControlled',
         '--disable-gpu',
@@ -129,6 +135,9 @@ export abstract class BaseAdapter implements PlatformAdapter {
     });
 
     const page = context.pages()[0] ?? (await context.newPage());
+    if (options.background && !(options.headless ?? false)) {
+      await this.tryHidePageWindow(context, page);
+    }
     const abortHandler = () => {
       void context.close().catch(() => null);
     };
@@ -187,6 +196,19 @@ export abstract class BaseAdapter implements PlatformAdapter {
           reject(error);
         });
     });
+  }
+
+  protected async tryHidePageWindow(context: BrowserContext, page: Page) {
+    try {
+      const session = await context.newCDPSession(page);
+      const { windowId } = await session.send('Browser.getWindowForTarget');
+      await session.send('Browser.setWindowBounds', {
+        windowId,
+        bounds: { windowState: 'minimized' },
+      });
+    } catch {
+      // Best effort only. Some Chromium builds/platforms may ignore these commands.
+    }
   }
 
   protected async startDebugCapture(

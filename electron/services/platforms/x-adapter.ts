@@ -1,6 +1,4 @@
 import {
-  clickFirstReady,
-  clickNamedButton,
   fillFirst,
   setInputFilesFirst,
   tryClickFirst,
@@ -42,6 +40,9 @@ const xSelectors = {
     'button[aria-label="Account menu"]',
   ],
 };
+
+const xChromeUserAgent =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
 
 export class XAdapter extends BaseAdapter {
   readonly platform = 'x' as const;
@@ -100,6 +101,7 @@ export class XAdapter extends BaseAdapter {
         const fail = (message: string) => this.buildFailureWithArtifacts(this.platform, message, page, capture);
 
         const result = await this.withOperationTimeout(async () => {
+          await prepareXHeadlessSession(context);
           await options.onProgress?.('Opening X composer');
           capture.appendNote('Navigating to X compose page');
           await page.goto('https://x.com/compose/post', {
@@ -116,8 +118,7 @@ export class XAdapter extends BaseAdapter {
           const composerReady = await waitForAnyXSelector(page, xSelectors.composer, 6_000);
           const openedComposer =
             composerReady ??
-            (await tryClickFirst(page, xSelectors.openComposer, 6_000)) ??
-            (await clickNamedButton(page, ['Post', 'Tweet'], 6_000).catch(() => null));
+            (await tryClickFirst(page, xSelectors.openComposer, 6_000));
 
           if (!openedComposer) {
             return fail(
@@ -141,13 +142,18 @@ export class XAdapter extends BaseAdapter {
           }
 
           await options.onProgress?.('Submitting the X post');
-          const clickedBySelector = await clickFirstReady(page, xSelectors.postButton, 15_000).catch(() => null);
-          if (!clickedBySelector) {
-            const clickedByName = await clickNamedButton(page, ['Post', 'Tweet'], 15_000);
-            capture.appendNote(`Submit clicked by name: ${clickedByName}`);
-          } else {
-            capture.appendNote(`Submit clicked by selector: ${clickedBySelector}`);
+          const submitSelector = await waitForReadyXSubmitButton(
+            page,
+            options.payload.assets.length > 0 ? 45_000 : 20_000,
+          );
+          capture.appendNote(`Submit button ready through: ${submitSelector ?? 'not found'}`);
+          if (!submitSelector) {
+            return fail(
+              'X never enabled the Post button. The draft was filled, but X kept the publish control disabled.',
+            );
           }
+          await page.locator(submitSelector).first().click({ timeout: 2_000 });
+          capture.appendNote(`Submit clicked by selector: ${submitSelector}`);
 
           await options.onProgress?.('Waiting for X to confirm the post (up to 15s)');
           let confirmation = await waitForXCreateResponse(page, 15_000);
@@ -178,17 +184,18 @@ export class XAdapter extends BaseAdapter {
           }
 
           if (isPlaywrightResponse(confirmation)) {
-            const submissionError = await readXSubmissionError(confirmation);
-            if (submissionError) {
-              return fail(submissionError);
+            const submission = await readXSubmissionResult(confirmation);
+            if (submission.error) {
+              return fail(submission.error);
             }
+
+            capture.appendNote(`X submission accepted with tweet id: ${submission.tweetId ?? 'unknown'}`);
           }
 
-          const composerClosed = await waitForXComposerToClose(page, 8_000);
-          capture.appendNote(`Composer closed after submit: ${composerClosed}`);
-          if (!composerClosed) {
+          const submitErrorAfterResponse = await waitForAnyXSelector(page, xSelectors.errorBanner, 1_500);
+          if (submitErrorAfterResponse) {
             return fail(
-              'X returned a publish response, but the composer stayed open and the post was not confirmed in the UI.',
+              'X showed an in-app error after the publish response, and the post was not confirmed.',
             );
           }
 
@@ -198,7 +205,17 @@ export class XAdapter extends BaseAdapter {
 
         await capture.stop();
         return result;
-      }, { headless: false, background: true, signal: options.signal });
+      }, {
+        headless: true,
+        signal: options.signal,
+        userAgent: xChromeUserAgent,
+        extraHTTPHeaders: {
+          'sec-ch-ua': '"Google Chrome";v="145", "Chromium";v="145", "Not=A?Brand";v="24"',
+          'sec-ch-ua-mobile': '?0',
+          'sec-ch-ua-platform': '"macOS"',
+        },
+        ignoreDefaultArgs: ['--enable-automation'],
+      });
     } catch (error) {
       return this.buildFailure(
         this.platform,
@@ -246,22 +263,48 @@ async function waitForAnyXSelector(
   return null;
 }
 
-async function waitForXComposerToClose(
+async function waitForReadyXSubmitButton(
   page: import('playwright').Page,
   timeout: number,
 ) {
   const deadline = Date.now() + timeout;
 
   while (Date.now() < deadline) {
-    const composerVisible = await waitForAnyXSelector(page, xSelectors.composer, 400);
-    if (!composerVisible && !page.url().includes('/compose/post')) {
-      return true;
+    for (const selector of xSelectors.postButton) {
+      const locator = page.locator(selector).first();
+      try {
+        if ((await locator.count()) === 0 || !(await locator.isVisible())) {
+          continue;
+        }
+
+        const enabled = await locator.evaluate((element) => {
+          if (!(element instanceof HTMLElement)) {
+            return false;
+          }
+
+          if (element.getAttribute('aria-disabled') === 'true') {
+            return false;
+          }
+
+          if ('disabled' in element && (element as HTMLButtonElement).disabled) {
+            return false;
+          }
+
+          return true;
+        });
+
+        if (enabled) {
+          return selector;
+        }
+      } catch {
+        continue;
+      }
     }
 
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
   }
 
-  return false;
+  return null;
 }
 
 function isPlaywrightResponse(
@@ -293,16 +336,68 @@ function isXCreatePostUrl(url: string) {
   );
 }
 
-async function readXSubmissionError(response: import('playwright').Response) {
+async function prepareXHeadlessSession(context: import('playwright').BrowserContext) {
+  await context.addInitScript(() => {
+    const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
+    const brands = [
+      { brand: 'Google Chrome', version: '145' },
+      { brand: 'Chromium', version: '145' },
+      { brand: 'Not=A?Brand', version: '24' },
+    ];
+
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => false,
+      configurable: true,
+    });
+
+    Object.defineProperty(navigator, 'userAgent', {
+      get: () => userAgent,
+      configurable: true,
+    });
+
+    Object.defineProperty(navigator, 'userAgentData', {
+      get: () => ({
+        brands,
+        mobile: false,
+        platform: 'macOS',
+        getHighEntropyValues: async () => ({
+          architecture: 'x86',
+          bitness: '64',
+          brands,
+          fullVersionList: brands,
+          mobile: false,
+          model: '',
+          platform: 'macOS',
+          platformVersion: '15.0.0',
+          uaFullVersion: '145.0.0.0',
+        }),
+        toJSON: () => ({
+          brands,
+          mobile: false,
+          platform: 'macOS',
+        }),
+      }),
+      configurable: true,
+    });
+  });
+}
+
+async function readXSubmissionResult(response: import('playwright').Response) {
   try {
     const payload = await response.json();
     const errors = Array.isArray(payload?.errors) ? payload.errors : [];
     if (errors.length === 0) {
       if (payload?.data && Object.keys(payload.data).length > 0) {
-        return null;
+        return {
+          error: null,
+          tweetId: extractXCreatedTweetId(payload),
+        };
       }
 
-      return 'X returned an empty publish response, and the post was not confirmed.';
+      return {
+        error: 'X returned an empty publish response, and the post was not confirmed.',
+        tweetId: null,
+      };
     }
 
     const firstError = errors[0] as {
@@ -314,11 +409,40 @@ async function readXSubmissionError(response: import('playwright').Response) {
     const message = typeof firstError.message === 'string' ? firstError.message : 'Unknown X publish error.';
 
     if (code === 226) {
-      return `X blocked this publish as automated (code 226). The saved X session needs a less detectable browser mode or a manual retry in X.`;
+      return {
+        error: 'X blocked this publish as automated (code 226). The saved X session needs a less detectable browser mode or a manual retry in X.',
+        tweetId: null,
+      };
     }
 
-    return `X rejected the publish request: ${message}${code ? ` (code ${code})` : ''}`;
+    return {
+      error: `X rejected the publish request: ${message}${code ? ` (code ${code})` : ''}`,
+      tweetId: null,
+    };
   } catch {
+    return {
+      error: null,
+      tweetId: null,
+    };
+  }
+}
+
+function extractXCreatedTweetId(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') {
     return null;
   }
+
+  const typedPayload = payload as {
+    data?: {
+      create_tweet?: {
+        tweet_results?: {
+          result?: {
+            rest_id?: string;
+          };
+        };
+      };
+    };
+  };
+
+  return typedPayload.data?.create_tweet?.tweet_results?.result?.rest_id ?? null;
 }
