@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { ipcChannels } from '../src/shared/ipc';
 import type {
   AppSnapshot,
+  CancelJobInput,
   ConnectAccountInput,
   ConnectAccountResult,
   DisconnectAccountInput,
@@ -24,6 +25,8 @@ const api = {
     ipcRenderer.invoke(ipcChannels.validateAccount, input) as Promise<ConnectAccountResult>,
   disconnectAccount: (input: DisconnectAccountInput) =>
     ipcRenderer.invoke(ipcChannels.disconnectAccount, input) as Promise<void>,
+  cancelJob: (input: CancelJobInput) =>
+    ipcRenderer.invoke(ipcChannels.cancelJob, input) as Promise<void>,
   selectAssets: () =>
     ipcRenderer.invoke(ipcChannels.selectAssets) as Promise<SelectAssetsResult>,
   saveDraft: (input: SaveDraftInput) =>

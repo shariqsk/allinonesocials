@@ -2,6 +2,7 @@
 
 import type {
   AppSnapshot,
+  CancelJobInput,
   ConnectAccountInput,
   ConnectAccountResult,
   DisconnectAccountInput,
@@ -23,6 +24,7 @@ declare global {
       connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
       validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
       disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
+      cancelJob: (input: CancelJobInput) => Promise<void>;
       selectAssets: () => Promise<SelectAssetsResult>;
       saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;
       publishNow: (input: PublishNowInput) => Promise<PublishNowResult>;

@@ -51,6 +51,8 @@ export default function App() {
   const [publishMode, setPublishMode] = useState<PublishMode>('now');
   const [scheduledFor, setScheduledFor] = useState(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm'));
   const [postingStep, setPostingStep] = useState(0);
+  const [postingElapsedSeconds, setPostingElapsedSeconds] = useState(0);
+  const [cancellingPublish, setCancellingPublish] = useState(false);
 
   useEffect(() => {
     void loadSnapshot();
@@ -74,6 +76,12 @@ export default function App() {
   const validation = useMemo(() => validateComposer(composerInput), [composerInput]);
   const targetStates = useMemo(() => buildTargetStates(composerInput), [composerInput]);
   const primaryAccounts = useMemo(() => buildPrimaryAccounts(snapshot.accounts), [snapshot.accounts]);
+  const currentRunningJob = useMemo(
+    () =>
+      [...snapshot.history, ...snapshot.scheduledJobs].find((job) => job.status === 'running') ??
+      null,
+    [snapshot.history, snapshot.scheduledJobs],
+  );
   const connectedPlatformIds = useMemo(
     () =>
       (Object.entries(primaryAccounts) as Array<[PlatformId, PlatformAccount | undefined]>)
@@ -98,11 +106,14 @@ export default function App() {
   useEffect(() => {
     if (!isPublishing) {
       setPostingStep(0);
+      setPostingElapsedSeconds(0);
+      setCancellingPublish(false);
       return;
     }
 
     const timer = window.setInterval(() => {
       setPostingStep((current) => (current + 1) % postingSteps.length);
+      setPostingElapsedSeconds((current) => current + 1);
     }, 1200);
 
     return () => {
@@ -203,7 +214,9 @@ export default function App() {
       const result = await window.socialDesk.publishNow(composerInput);
       setSuccess(`Publish finished with ${result.job.status} status.`);
       setView('history');
-      resetComposer();
+      if (result.job.status !== 'cancelled') {
+        resetComposer();
+      }
     });
   }
 
@@ -219,6 +232,24 @@ export default function App() {
     });
   }
 
+  async function cancelCurrentPublish() {
+    if (!currentRunningJob || cancellingPublish) {
+      return;
+    }
+
+    setCancellingPublish(true);
+    setError(null);
+    setSuccess('Cancelling publish…');
+
+    try {
+      await window.socialDesk.cancelJob({ jobId: currentRunningJob.id });
+      await loadSnapshot();
+    } catch (caughtError) {
+      setError(getErrorMessage(caughtError));
+      setCancellingPublish(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       {isPublishing ? (
@@ -226,6 +257,10 @@ export default function App() {
           step={postingSteps[postingStep]}
           selectedPlatforms={selectedPlatforms}
           assets={assets}
+          job={currentRunningJob}
+          elapsedSeconds={postingElapsedSeconds}
+          cancelling={cancellingPublish}
+          onCancel={() => void cancelCurrentPublish()}
         />
       ) : null}
       <aside className="sidebar">
@@ -384,13 +419,25 @@ function PostingOverlay({
   step,
   selectedPlatforms,
   assets,
+  job,
+  elapsedSeconds,
+  cancelling,
+  onCancel,
 }: {
   step: string;
   selectedPlatforms: PlatformId[];
   assets: ImportedAsset[];
+  job: PublishJob | null;
+  elapsedSeconds: number;
+  cancelling: boolean;
+  onCancel: () => void;
 }) {
   const imageCount = assets.filter((asset) => asset.mediaKind === 'image').length;
   const videoCount = assets.filter((asset) => asset.mediaKind === 'video').length;
+  const platforms = job?.payload.selectedPlatforms ?? selectedPlatforms;
+  const resultMap = new Map((job?.results ?? []).map((result) => [result.platform, result]));
+  const completedCount = (job?.results ?? []).filter((result) => result.status === 'success').length;
+  const failedCount = (job?.results ?? []).filter((result) => result.status === 'failed').length;
 
   return (
     <div className="posting-overlay">
@@ -406,9 +453,49 @@ function PostingOverlay({
         <div className="posting-track">
           <span className="posting-bar" />
         </div>
+        <p className="posting-elapsed">Elapsed {formatElapsedSeconds(elapsedSeconds)}</p>
         <div className="posting-meta">
-          <span>{selectedPlatforms.map((platform) => platformDefinitions[platform].displayName).join(' · ')}</span>
+          <span>{platforms.map((platform) => platformDefinitions[platform].displayName).join(' · ')}</span>
           <span>{buildMediaSelectionMessage(imageCount, videoCount).replace(' selected.', '')}</span>
+        </div>
+        <div className="posting-summary">
+          <strong>
+            {completedCount} of {platforms.length} posted
+          </strong>
+          <span>{failedCount > 0 ? `${failedCount} failed so far` : 'No platform failures so far'}</span>
+        </div>
+        <div className="posting-actions">
+          <button type="button" className="ghost-button" onClick={onCancel} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : 'Cancel'}
+          </button>
+        </div>
+        <div className="posting-platforms">
+          {platforms.map((platform) => {
+            const result = resultMap.get(platform);
+            const state = result
+              ? result.status === 'success'
+                ? 'done'
+                : result.status === 'failed'
+                  ? 'failed'
+                  : 'working'
+              : 'working';
+
+            return (
+              <div className={`posting-platform posting-platform-${state}`} key={platform}>
+                <strong>{platformDefinitions[platform].displayName}</strong>
+                <span>
+                  {result
+                    ? result.status === 'success'
+                      ? 'Posted'
+                      : result.status === 'failed'
+                        ? 'Failed'
+                        : 'Working'
+                    : 'Working'}
+                </span>
+                <small>{result?.message ?? 'Waiting for this platform to start.'}</small>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -593,7 +680,7 @@ function ComposerView(props: ComposerViewProps) {
         </label>
 
         <label className="field-block">
-          <span>Images</span>
+          <span>Media</span>
           <div className="asset-picker-row">
             <button type="button" className="ghost-button" onClick={onSelectAssets}>
               Choose media
@@ -793,7 +880,7 @@ function SettingsView() {
         </div>
         <ul className="settings-list">
           <li>X, Facebook, and Instagram are in the active publish flow.</li>
-          <li>TikTok is intentionally scaffolded only and blocked from the shared v1 composer.</li>
+          <li>TikTok is available through the browser upload flow for single-video posts.</li>
           <li>Browser automation remains isolated inside per-platform adapters so future maintenance stays contained.</li>
         </ul>
       </div>
@@ -802,12 +889,23 @@ function SettingsView() {
 }
 
 function JobRow({ job }: { job: PublishJob }) {
+  const pillStatus =
+    job.status === 'completed'
+      ? 'connected'
+      : job.status === 'pending'
+        ? 'disconnected'
+        : job.status === 'running'
+          ? 'connected'
+          : job.status === 'cancelled'
+            ? 'disconnected'
+          : 'attention';
+
   return (
     <article className="row-card">
       <div>
         <div className="row-heading">
           <strong>{job.payload.selectedPlatforms.join(', ')}</strong>
-          <StatusPill status={job.status === 'completed' ? 'connected' : job.status === 'pending' ? 'disconnected' : 'attention'} label={job.status} />
+          <StatusPill status={pillStatus} label={job.status} />
         </div>
         <p>{job.payload.body || `${job.payload.assets.length} image(s)`}</p>
         <div className="meta-grid">
@@ -824,6 +922,8 @@ function JobRow({ job }: { job: PublishJob }) {
                   ? 'result-pill result-pill-success'
                   : result.status === 'failed'
                     ? 'result-pill result-pill-error'
+                    : result.status === 'running'
+                      ? 'result-pill result-pill-running'
                     : 'result-pill'
               }
             >
@@ -879,6 +979,12 @@ function buildMediaSelectionMessage(imageCount: number, videoCount: number) {
     return 'Text only';
   }
   return `${parts.join(' and ')} selected.`;
+}
+
+function formatElapsedSeconds(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
 const postingSteps = [

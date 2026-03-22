@@ -184,7 +184,7 @@ export class DatabaseService {
 
   getLatestConnectedAccount(platform: PlatformAccount['platform']) {
     return this.listAccounts().find(
-      (account) => account.platform === platform && account.status !== 'disconnected',
+      (account) => account.platform === platform && account.status === 'connected',
     );
   }
 
@@ -356,7 +356,11 @@ export class DatabaseService {
     const accounts = this.listAccounts();
     const drafts = this.listDrafts();
     const jobs = this.listJobs();
-    const scheduledJobs = jobs.filter((job) => job.status === 'pending' || job.status === 'running');
+    const scheduledJobs = jobs.filter(
+      (job) =>
+        job.scheduledFor !== null &&
+        (job.status === 'pending' || job.status === 'running'),
+    );
     const history = jobs.filter((job) => !scheduledJobs.includes(job));
     const stats: DashboardStats = {
       connectedAccounts: accounts.filter((account) => account.status === 'connected').length,

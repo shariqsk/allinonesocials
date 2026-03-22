@@ -65,12 +65,24 @@ export class FacebookAdapter extends BaseAdapter {
 
   async publish(options: PublishOptions) {
     try {
-      return await this.withContext(options.secret.profileDir, async (_context, page) => {
+      return await this.withContext(options.secret.profileDir, async (context, page) => {
+        await options.onProgress?.('Opening Facebook');
         await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
+
+        if (!(await this.isAuthenticated(context, page))) {
+          return this.buildFailure(
+            this.platform,
+            'Login expired or Facebook needs attention before publishing. Reconnect before posting.',
+          );
+        }
+
+        await options.onProgress?.('Opening the Facebook composer');
         await clickFirst(page, facebookSelectors.openComposer, 4000);
+        await options.onProgress?.('Filling the Facebook post');
         await fillFirst(page, facebookSelectors.composer, options.payload.body, 4000);
 
         if (options.payload.assets.length > 0) {
+          await options.onProgress?.('Uploading media to Facebook');
           await setInputFilesFirst(
             page,
             facebookSelectors.fileInput,
@@ -79,11 +91,12 @@ export class FacebookAdapter extends BaseAdapter {
           await page.waitForTimeout(400);
         }
 
+        await options.onProgress?.('Sending the Facebook post');
         await clickFirst(page, facebookSelectors.postButton, 4000);
         await page.waitForTimeout(800);
 
         return this.buildSuccess(this.platform, 'Published on Facebook.', page.url());
-      }, { headless: true });
+      }, { headless: true, signal: options.signal });
     } catch (error) {
       return this.buildFailure(
         this.platform,

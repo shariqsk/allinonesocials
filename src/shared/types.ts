@@ -6,11 +6,12 @@ export type AccountStatus = 'connected' | 'attention' | 'disconnected';
 export type JobStatus =
   | 'pending'
   | 'running'
+  | 'cancelled'
   | 'completed'
   | 'failed'
   | 'partial'
   | 'missed';
-export type PublishResultStatus = 'success' | 'failed' | 'skipped';
+export type PublishResultStatus = 'running' | 'success' | 'failed' | 'skipped';
 export type MediaKind = 'image' | 'video';
 
 export interface ImportedAsset {
@@ -140,6 +141,10 @@ export interface ValidateAccountInput {
 
 export interface DisconnectAccountInput {
   accountId: string;
+}
+
+export interface CancelJobInput {
+  jobId: string;
 }
 
 export interface SaveDraftInput extends ComposerInput {}

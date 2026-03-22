@@ -1,4 +1,10 @@
-import { clickFirst, fillFirst, setInputFilesFirst, waitForAnySelector } from './adapter-utils';
+import {
+  clickFirstReady,
+  clickNamedButton,
+  fillFirst,
+  setInputFilesFirst,
+  waitForAnySelector,
+} from './adapter-utils';
 import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSummary } from './base';
 
 const tiktokSelectors = {
@@ -19,6 +25,19 @@ const tiktokSelectors = {
   postButton: [
     'button:has-text("Post")',
     'button[data-e2e="post_video_button"]',
+    'button:has-text("Publish")',
+    'button[data-e2e*="post"]',
+    'button[aria-label*="Post"]',
+    '[role="button"]:has-text("Post")',
+    '[role="button"]:has-text("Publish")',
+  ],
+  blockingModalButtons: [
+    'button:has-text("Turn on")',
+    'button:has-text("Cancel")',
+    'button:has-text("Got it")',
+    '[role="button"]:has-text("Turn on")',
+    '[role="button"]:has-text("Cancel")',
+    '[role="button"]:has-text("Got it")',
   ],
   successMarkers: [
     'text=Uploaded',
@@ -87,56 +106,84 @@ export class TikTokAdapter extends BaseAdapter {
     }
 
     try {
-      return await this.withContext(options.secret.profileDir, async (_context, page) => {
-        await page.goto('https://www.tiktok.com/upload?lang=en', {
-          waitUntil: 'domcontentloaded',
-        });
+      return await this.withContext(options.secret.profileDir, async (context, page) => {
+        const capture = await this.startDebugCapture(context, page, options.secret.profileDir, this.platform);
+        const fail = (message: string) => this.buildFailureWithArtifacts(this.platform, message, page, capture);
 
-        await setInputFilesFirst(page, tiktokSelectors.fileInput, [video.path], 12_000);
+        const result = await this.withOperationTimeout(async () => {
+          if (!(await this.hasSessionCookies(context))) {
+            return fail(
+              'Login expired or TikTok needs another checkpoint before publishing.',
+            );
+          }
 
-        if (options.payload.body.trim()) {
-          await fillFirst(page, tiktokSelectors.caption, options.payload.body, 8_000);
-        }
+          await options.onProgress?.('Opening the TikTok upload workspace');
+          capture.appendNote('Navigating to TikTok upload workspace');
+          await page.goto('https://www.tiktok.com/upload?lang=en', {
+            waitUntil: 'domcontentloaded',
+          });
 
-        const createResponse = page
-          .waitForResponse(
-            (response) =>
-              response.request().method() === 'POST' &&
-              (response.url().includes('/api/upload/') ||
-                response.url().includes('/api/post/item_create/') ||
-                response.url().includes('/web/project/post/create/')),
-            { timeout: 20_000 },
-          )
-          .catch(() => null);
+          await options.onProgress?.('Uploading the TikTok video');
+          await setInputFilesFirst(page, tiktokSelectors.fileInput, [video.path], 12_000);
+          capture.appendNote(`TikTok video queued: ${video.path}`);
 
-        await clickFirst(page, tiktokSelectors.postButton, 10_000);
+          if (options.payload.body.trim()) {
+            await options.onProgress?.('Adding the TikTok caption');
+            await fillFirst(page, tiktokSelectors.caption, options.payload.body, 8_000);
+          }
 
-        const [response, successMarker] = await Promise.all([
+          await dismissTikTokBlockingModals(page, capture);
+
+          await options.onProgress?.('Waiting for TikTok to process the video (up to 45s)');
+          const createResponse = page
+            .waitForResponse(
+              (response) =>
+                response.request().method() === 'POST' &&
+                (response.url().includes('/api/upload/') ||
+                  response.url().includes('/api/post/item_create/') ||
+                  response.url().includes('/web/project/post/create/')),
+              { timeout: 45_000 },
+            )
+            .catch(() => null);
+
+          const clickedByName = await clickNamedButton(page, ['Post', 'Publish'], 45_000).catch(() => null);
+          if (!clickedByName) {
+            await clickFirstReady(page, tiktokSelectors.postButton, 45_000);
+            capture.appendNote('TikTok submit clicked by selector fallback');
+          } else {
+            capture.appendNote(`TikTok submit clicked by name: ${clickedByName}`);
+          }
+
+          await options.onProgress?.('Waiting for TikTok to confirm the upload (up to 45s)');
+          const [response, successMarker] = await Promise.all([
           createResponse,
-          waitForAnySelector(page, tiktokSelectors.successMarkers, 20_000),
-        ]);
+            waitForAnySelector(page, tiktokSelectors.successMarkers, 20_000),
+          ]);
 
-        if (response?.ok() || successMarker) {
-          return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
-        }
+          if (response?.ok() || successMarker) {
+            return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
+          }
 
-        if (response && !response.ok()) {
-          return this.buildFailure(
-            this.platform,
-            `TikTok rejected the upload request with HTTP ${response.status()}.`,
+          if (response && !response.ok()) {
+            return fail(
+              `TikTok rejected the upload request with HTTP ${response.status()}.`,
+            );
+          }
+
+          return fail(
+            'TikTok did not confirm the upload within 45 seconds after clicking Post.',
           );
-        }
+        }, 70_000, 'TikTok publish timed out before the upload was confirmed.', options.signal)
+          .catch((error) => fail(error instanceof Error ? error.message : 'TikTok publishing failed.'));
 
+        await capture.stop();
+        return result;
+      }, { headless: true, signal: options.signal });
+    } catch (error) {
         return this.buildFailure(
           this.platform,
-          'TikTok did not confirm the upload after clicking Post.',
+          error instanceof Error ? error.message : 'TikTok publishing failed.',
         );
-      }, { headless: true });
-    } catch (error) {
-      return this.buildFailure(
-        this.platform,
-        error instanceof Error ? error.message : 'TikTok publishing failed.',
-      );
     }
   }
 
@@ -157,4 +204,16 @@ export class TikTokAdapter extends BaseAdapter {
         Boolean(cookie.value),
     );
   }
+}
+
+async function dismissTikTokBlockingModals(
+  page: import('playwright').Page,
+  capture: { appendNote: (note: string) => void },
+) {
+  const clickedByName = await clickNamedButton(page, ['Turn on', 'Cancel', 'Got it'], 3000).catch(() => null);
+  if (clickedByName) {
+    capture.appendNote(`Dismissed TikTok blocking modal with: ${clickedByName}`);
+  }
+
+  await clickFirstReady(page, tiktokSelectors.blockingModalButtons, 1500).catch(() => null);
 }

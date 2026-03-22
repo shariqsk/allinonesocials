@@ -28,6 +28,9 @@ export const validateAccountInputSchema = z.object({
 });
 
 export const disconnectAccountInputSchema = validateAccountInputSchema;
+export const cancelJobInputSchema = z.object({
+  jobId: z.string().min(1),
+});
 
 export const saveDraftInputSchema = composerInputSchema;
 

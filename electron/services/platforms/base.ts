@@ -1,4 +1,5 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import type {
   ComposerInput,
@@ -24,6 +25,8 @@ export interface PublishOptions {
   account: PlatformAccount;
   secret: AccountSecret;
   payload: ComposerInput;
+  onProgress?: (message: string) => void | Promise<void>;
+  signal?: AbortSignal;
 }
 
 export interface PlatformAdapter {
@@ -35,6 +38,15 @@ export interface PlatformAdapter {
 
 interface ContextOptions {
   headless?: boolean;
+  background?: boolean;
+  signal?: AbortSignal;
+}
+
+interface DebugCapture {
+  diagnosticsDir: string;
+  appendNote: (note: string) => void;
+  persistFailureArtifacts: (page: Page, message: string) => Promise<string>;
+  stop: () => Promise<void>;
 }
 
 export abstract class BaseAdapter implements PlatformAdapter {
@@ -110,16 +122,163 @@ export abstract class BaseAdapter implements PlatformAdapter {
         '--disable-dev-shm-usage',
         '--no-first-run',
         '--no-default-browser-check',
+        ...(options.background && !(options.headless ?? false)
+          ? ['--window-position=-32000,-32000', '--window-size=1440,960', '--start-minimized']
+          : []),
       ],
     });
 
     const page = context.pages()[0] ?? (await context.newPage());
+    const abortHandler = () => {
+      void context.close().catch(() => null);
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        abortHandler();
+      } else {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+      }
+    }
 
     try {
       return await fn(context, page);
     } finally {
+      options.signal?.removeEventListener('abort', abortHandler);
       await context.close();
     }
+  }
+
+  protected async withOperationTimeout<T>(
+    operation: () => Promise<T>,
+    timeoutMs: number,
+    message: string,
+    signal?: AbortSignal,
+  ) {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(message));
+      }, timeoutMs);
+      const abortHandler = () => {
+        cleanup();
+        reject(new Error('Publishing was cancelled by user.'));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', abortHandler);
+      };
+
+      if (signal?.aborted) {
+        cleanup();
+        reject(new Error('Publishing was cancelled by user.'));
+        return;
+      }
+
+      signal?.addEventListener('abort', abortHandler, { once: true });
+
+      void operation()
+        .then((result) => {
+          cleanup();
+          resolve(result);
+        })
+        .catch((error) => {
+          cleanup();
+          reject(error);
+        });
+    });
+  }
+
+  protected async startDebugCapture(
+    context: BrowserContext,
+    page: Page,
+    profileDir: string,
+    platform: PlatformId,
+  ): Promise<DebugCapture> {
+    const startedAt = new Date().toISOString().replace(/[:.]/g, '-');
+    const diagnosticsDir = path.join(profileDir, 'debug-runs', `${platform}-${startedAt}`);
+    const notes: string[] = [];
+    const consoleEvents: string[] = [];
+    const pageErrors: string[] = [];
+    const requestFailures: string[] = [];
+
+    await mkdir(diagnosticsDir, { recursive: true });
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+
+    const onConsole = (message: import('playwright').ConsoleMessage) => {
+      consoleEvents.push(`[${message.type()}] ${message.text()}`);
+    };
+    const onPageError = (error: Error) => {
+      pageErrors.push(error.stack ?? error.message);
+    };
+    const onRequestFailed = (request: import('playwright').Request) => {
+      requestFailures.push(
+        `${request.method()} ${request.url()}${request.failure() ? ` :: ${request.failure()?.errorText}` : ''}`,
+      );
+    };
+
+    page.on('console', onConsole);
+    page.on('pageerror', onPageError);
+    context.on('requestfailed', onRequestFailed);
+
+    return {
+      diagnosticsDir,
+      appendNote: (note: string) => {
+        notes.push(note);
+      },
+      persistFailureArtifacts: async (page, message) => {
+        const screenshotPath = path.join(diagnosticsDir, 'failure.png');
+        const htmlPath = path.join(diagnosticsDir, 'page.html');
+        const tracePath = path.join(diagnosticsDir, 'trace.zip');
+        const reportPath = path.join(diagnosticsDir, 'report.txt');
+
+        await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => null);
+        await writeFile(htmlPath, await page.content().catch(() => '<html></html>'), 'utf8');
+        await context.tracing.stop({ path: tracePath }).catch(() => null);
+
+        const report = [
+          `Platform: ${platform}`,
+          `Message: ${message}`,
+          `URL: ${page.url()}`,
+          '',
+          'Notes:',
+          ...(notes.length > 0 ? notes : ['(none)']),
+          '',
+          'Console:',
+          ...(consoleEvents.length > 0 ? consoleEvents : ['(none)']),
+          '',
+          'Page errors:',
+          ...(pageErrors.length > 0 ? pageErrors : ['(none)']),
+          '',
+          'Request failures:',
+          ...(requestFailures.length > 0 ? requestFailures : ['(none)']),
+        ].join('\n');
+
+        await writeFile(reportPath, report, 'utf8');
+
+        page.off('console', onConsole);
+        page.off('pageerror', onPageError);
+        context.off('requestfailed', onRequestFailed);
+
+        return diagnosticsDir;
+      },
+      stop: async () => {
+        page.off('console', onConsole);
+        page.off('pageerror', onPageError);
+        context.off('requestfailed', onRequestFailed);
+        await context.tracing.stop().catch(() => null);
+      },
+    };
+  }
+
+  protected async buildFailureWithArtifacts(
+    platform: PlatformId,
+    message: string,
+    page: Page,
+    capture: DebugCapture,
+  ) {
+    const diagnosticsDir = await capture.persistFailureArtifacts(page, message);
+    return this.buildFailure(platform, `${message} Diagnostics: ${diagnosticsDir}`);
   }
 
   protected buildSuccess(platform: PlatformId, message: string, postUrl: string | null = null): PlatformPublishResult {

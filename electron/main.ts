@@ -5,6 +5,7 @@ import log from 'electron-log/main';
 import { platformDefinitions } from '../src/shared/content';
 import { ipcChannels } from '../src/shared/ipc';
 import {
+  cancelJobInputSchema,
   connectAccountInputSchema,
   disconnectAccountInputSchema,
   publishNowInputSchema,
@@ -87,6 +88,9 @@ function registerIpc(manager: SocialManager) {
   );
   ipcMain.handle(ipcChannels.disconnectAccount, async (_event, payload) =>
     manager.disconnectAccount(disconnectAccountInputSchema.parse(payload)),
+  );
+  ipcMain.handle(ipcChannels.cancelJob, async (_event, payload) =>
+    manager.cancelJob(cancelJobInputSchema.parse(payload)),
   );
   ipcMain.handle(ipcChannels.selectAssets, async () => {
     const dialogOptions: OpenDialogOptions = {
