@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win:portable": "npm run build && electron-builder --win portable"
   },
   "repository": {
     "type": "git",
@@ -29,6 +32,41 @@
     "url": "https://github.com/shariqsk/allinonesocials/issues"
   },
   "homepage": "https://github.com/shariqsk/allinonesocials#readme",
+  "build": {
+    "appId": "com.socialdesk.desktop",
+    "productName": "Social Desk",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "SocialDesk-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Social Desk"
+    },
+    "portable": {
+      "artifactName": "SocialDesk-Portable-${version}.${ext}"
+    }
+  },
   "dependencies": {
     "dayjs": "^1.11.20",
     "electron-log": "^5.4.3",
@@ -51,6 +89,7 @@
     "@types/sql.js": "^1.4.10",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "jsdom": "^29.0.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.1",
