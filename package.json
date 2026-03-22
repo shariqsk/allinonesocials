@@ -11,9 +11,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "pack": "npm run build && electron-builder --dir",
-    "dist:win": "npm run build && electron-builder --win nsis",
-    "dist:win:portable": "npm run build && electron-builder --win portable"
+    "pack": "npm run build && electron-builder --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
+    "dist:win:portable": "npm run build && electron-builder --win portable --publish never"
   },
   "repository": {
     "type": "git",
@@ -45,6 +45,7 @@
     ],
     "asar": true,
     "win": {
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "nsis",
