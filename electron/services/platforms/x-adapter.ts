@@ -190,6 +190,28 @@ export class XAdapter extends BaseAdapter {
             }
 
             capture.appendNote(`X submission accepted with tweet id: ${submission.tweetId ?? 'unknown'}`);
+
+            if (submission.tweetId) {
+              // Extract username from the page URL or cookies to build post URL
+              const postUrl = await page.evaluate(() => {
+                // X redirects to the tweet or the home page after posting.
+                // Try to get the username from the page's meta or URL.
+                const screenName = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href')?.replace('/', '');
+                return screenName ?? null;
+              });
+              const tweetUrl = postUrl
+                ? `https://x.com/${postUrl}/status/${submission.tweetId}`
+                : `https://x.com/i/status/${submission.tweetId}`;
+
+              const submitErrorAfterResponse = await waitForAnyXSelector(page, xSelectors.errorBanner, 1_500);
+              if (submitErrorAfterResponse) {
+                return fail(
+                  'X showed an in-app error after the publish response, and the post was not confirmed.',
+                );
+              }
+
+              return this.buildSuccess(this.platform, 'Published on X.', tweetUrl);
+            }
           }
 
           const submitErrorAfterResponse = await waitForAnyXSelector(page, xSelectors.errorBanner, 1_500);

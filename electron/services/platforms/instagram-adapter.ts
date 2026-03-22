@@ -1,62 +1,27 @@
 import {
-  clickFirst,
-  clickFirstReady,
-  clickNamedButton,
   fillFirst,
   setInputFilesFirst,
-  tryClickFirst,
-  tryClickNamedButton,
 } from './adapter-utils';
 import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSummary } from './base';
 
-const instagramSelectors = {
+type Page = import('playwright').Page;
+
+const SELECTORS = {
   loggedInMarkers: [
-    'a[href="/create/select/"]',
-    '[aria-label="New post"]',
     'svg[aria-label="New post"]',
-    'a[href="/direct/inbox/"]',
     'svg[aria-label="Home"]',
+    'a[href="/direct/inbox/"]',
   ],
-  createButton: [
-    'a:has(svg[aria-label="New post"])',
-    'a[role="link"]:has(svg[aria-label="New post"])',
-    '[role="button"]:has(svg[aria-label="New post"])',
-    'a[href="/create/select/"]',
-    'a[href*="/create/"]',
+  fileInput: [
+    'input[type="file"]',
+    'input[accept*="image"]',
+    'input[accept*="video"]',
+    'input[multiple]',
   ],
-  createMenuEntry: [
-    'text="Post"',
-    'text="Reel"',
-    'button:has-text("Post")',
-    '[role="button"]:has-text("Post")',
-    '[role="menuitem"]:has-text("Post")',
-    'a:has-text("Post")',
-    'button:has-text("Reel")',
-    '[role="button"]:has-text("Reel")',
-    '[role="menuitem"]:has-text("Reel")',
-    'a:has-text("Reel")',
-  ],
-  fileInput: ['input[type="file"]', 'input[accept*="image"]', 'input[accept*="video"]', 'input[multiple]'],
-  nextButton: [
-    'button[aria-label="Next"]',
-    '[role="button"][aria-label="Next"]',
-    'svg[aria-label="Next"]',
-    'button:has-text("Next")',
-    'button:has-text("Continue")',
-    '[role="button"]:has-text("Next")',
-    '[role="button"]:has-text("Continue")',
-    'a:has-text("Next")',
-    'a:has-text("Continue")',
-  ],
-  caption: ['textarea[aria-label="Write a caption..."]', 'textarea'],
-  shareButton: [
-    'button[aria-label="Share"]',
-    '[role="button"][aria-label="Share"]',
-    'button:has-text("Share")',
-    'button:has-text("Post")',
-    '[role="button"]:has-text("Share")',
-    '[role="button"]:has-text("Post")',
-    'a:has-text("Share")',
+  caption: [
+    'textarea[aria-label="Write a caption..."]',
+    'div[aria-label="Write a caption..."]',
+    'div[contenteditable="true"][role="textbox"]',
   ],
 };
 
@@ -124,86 +89,149 @@ export class InstagramAdapter extends BaseAdapter {
         const capture = await this.startDebugCapture(context, page, options.secret.profileDir, this.platform);
         const fail = (message: string) => this.buildFailureWithArtifacts(this.platform, message, page, capture);
 
-        const hasVideo = options.payload.assets.some((asset) => asset.mediaKind === 'video');
-
         const result = await this.withOperationTimeout(async () => {
           const files = options.payload.assets.map((asset) => asset.path);
-          const processingTimeout = hasVideo ? 60_000 : 25_000;
-          const shareTimeout = hasVideo ? 30_000 : 15_000;
 
-          await options.onProgress?.('Opening Instagram create flow');
+          // Step 1: Navigate to Instagram home
+          await options.onProgress?.('Opening Instagram');
           capture.appendNote('Navigating to Instagram home');
-          await page.goto(this.homeUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 15_000,
-          });
+          await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 });
 
           if (!(await this.isAuthenticated(context, page))) {
-            return fail(
-              'Login expired or Instagram still needs a manual checkpoint. Reconnect before publishing.',
-            );
+            return fail('Login expired or Instagram needs a manual checkpoint. Reconnect before publishing.');
           }
 
-          await options.onProgress?.('Uploading media to Instagram');
-          const uploadMethod = await openInstagramUploadFlow(page, files);
-          if (!uploadMethod) {
-            throw new Error(
-              'Could not open Instagram upload from the home create flow or find an upload input.',
-            );
+          // Step 2: Click sidebar "Create" button
+          await options.onProgress?.('Opening create menu');
+          await dismissPopups(page);
+          const clickedCreate = await mouseClickElement(page, 'svg[aria-label="New post"]', 5000);
+          if (!clickedCreate) {
+            throw new Error('Could not find the Instagram Create button in the sidebar.');
           }
-          capture.appendNote(`Instagram upload method: ${uploadMethod}`);
-
-          await options.onProgress?.(
-            hasVideo
-              ? 'Waiting for Instagram to process the video (up to 2 min)'
-              : 'Waiting for Instagram to finish processing the media',
-          );
-          const stage = await waitForInstagramStage(page, processingTimeout);
-          if (stage === null) {
-            throw new Error(
-              hasVideo
-                ? 'Instagram did not reach the next editing step within 2 minutes after the video upload.'
-                : 'Instagram did not reach the next editing step after the upload.',
-            );
-          }
-
-          if (stage === 'advance') {
-            const firstNext = await tryClickInstagramAction(page, ['Next', 'Continue'], shareTimeout);
-            if (!firstNext) {
-              await clickFirstReady(page, instagramSelectors.nextButton, shareTimeout);
-            }
-
-            await waitForInstagramStage(page, 10_000);
-            await tryClickInstagramAction(page, ['Next', 'Continue'], 10_000);
-          }
-
-          const readyForCaptionOrShare = await waitForInstagramStage(page, shareTimeout);
-          if (readyForCaptionOrShare === null) {
-            throw new Error('Instagram never reached the editor or share step after the upload.');
-          }
-          capture.appendNote(`Instagram editor/share stage: ${readyForCaptionOrShare}`);
-
-          if (options.payload.body.trim()) {
-            await options.onProgress?.('Adding the Instagram caption');
-            await fillFirst(page, instagramSelectors.caption, options.payload.body, 6000);
-          }
-
-          await options.onProgress?.(
-            hasVideo
-              ? 'Waiting for Instagram to enable Share (up to 30s)'
-              : 'Waiting for Instagram to enable Share',
-          );
-          const clickedShare = await tryClickInstagramAction(page, ['Share', 'Post'], shareTimeout);
-          if (!clickedShare) {
-            await clickFirstReady(page, instagramSelectors.shareButton, shareTimeout);
-            capture.appendNote('Instagram share clicked by selector fallback');
-          } else {
-            capture.appendNote(`Instagram share clicked by action: ${clickedShare}`);
-          }
+          capture.appendNote('Clicked Create button');
           await page.waitForTimeout(1000);
 
-          return this.buildSuccess(this.platform, 'Published on Instagram.', page.url());
-        }, 80_000, 'Instagram publish timed out before reaching the share confirmation step.', options.signal)
+          // Step 3: Click "Post" from the create menu (menu items are <a> with
+          //   <svg aria-label="Post"> + <span>Post</span>, so click the SVG icon)
+          await options.onProgress?.('Selecting Post type');
+          const clickedPost =
+            await mouseClickElement(page, 'svg[aria-label="Post"]', 5000) ||
+            await mouseClickElement(page, 'svg[aria-label="Reel"]', 3000);
+          if (!clickedPost) {
+            throw new Error('Could not find Post or Reel option in the create menu.');
+          }
+          capture.appendNote('Clicked Post/Reel menu option');
+          await page.waitForTimeout(1000);
+
+          // Step 4: Upload files
+          await options.onProgress?.('Uploading media');
+          const uploaded = await uploadFiles(page, files);
+          if (!uploaded) {
+            throw new Error('Could not find a file input to upload media.');
+          }
+          capture.appendNote(`Uploaded files via: ${uploaded}`);
+
+          // Step 5: Click through crop screen → Next, edit screen → Next
+          // Keep clicking Next/Continue until we reach the caption/share screen.
+          // Dismiss any popups at each step (e.g. "Video posts are now shared as reels").
+          // IMPORTANT: All selectors must be scoped to the create dialog — the feed
+          // behind has its own Next/Share SVGs on carousel posts.
+          await options.onProgress?.('Processing media');
+          // Wait for Instagram to process the uploaded media and show the crop screen
+          await page.waitForTimeout(2000);
+          await dismissPopups(page);
+          let reachedCompose = false;
+          for (let attempt = 0; attempt < 6; attempt += 1) {
+            await dismissPopups(page);
+
+            const stage = await detectStage(page, 10_000);
+            capture.appendNote(`Stage ${attempt}: ${stage}`);
+
+            if (stage === 'compose') {
+              reachedCompose = true;
+              break;
+            }
+
+            if (stage === 'advance') {
+              const clicked =
+                await mouseClickElement(page, DIALOG_SELECTOR + ' svg[aria-label="Next"]', 3000) ||
+                await mouseClickText(page, 'Next', 3000) ||
+                await mouseClickText(page, 'Continue', 3000);
+              capture.appendNote(`Clicked advance: ${clicked}`);
+              await page.waitForTimeout(500);
+              continue;
+            }
+
+            // No recognized stage — might still be processing. Wait and retry.
+            await page.waitForTimeout(2000);
+          }
+
+          if (!reachedCompose) {
+            throw new Error('Instagram never reached the caption/share screen after uploading.');
+          }
+
+          // Step 6: Fill caption
+          if (options.payload.body.trim()) {
+            await options.onProgress?.('Adding caption');
+            await fillCaption(page, options.payload.body);
+            capture.appendNote('Caption filled');
+          }
+
+          // Step 7: Click Share and verify it actually published
+          await options.onProgress?.('Sharing post');
+          await dismissPopups(page);
+
+          // Try clicking Share — if a popup appears, dismiss it and retry
+          let shareAttempts = 0;
+          let confirmed = false;
+          while (shareAttempts < 3 && !confirmed) {
+            shareAttempts += 1;
+            await dismissPopups(page);
+
+            const clickedShare =
+              await mouseClickElement(page, DIALOG_SELECTOR + ' svg[aria-label="Share"]', 5000) ||
+              await mouseClickText(page, 'Share', 5000) ||
+              await mouseClickText(page, 'Post', 3000);
+            if (!clickedShare) {
+              // Share button might be gone if the dialog already closed
+              break;
+            }
+            capture.appendNote(`Clicked share attempt ${shareAttempts}: ${clickedShare}`);
+
+            await options.onProgress?.('Waiting for Instagram to confirm');
+            confirmed = await waitForShareDialogToClose(page, 30_000);
+          }
+          if (!confirmed) {
+            // Capture what's visible for diagnostics
+            const visibleState = await page.evaluate(() => {
+              const check = (sel: string) => {
+                const el = document.querySelector(sel);
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0 ? 'visible' : 'hidden';
+              };
+              return {
+                share: check('svg[aria-label="Share"]'),
+                next: check('svg[aria-label="Next"]'),
+                crop: check('svg[aria-label="Crop"]'),
+                caption: check('div[aria-label="Write a caption..."]') ?? check('textarea[aria-label="Write a caption..."]'),
+                url: window.location.href,
+              };
+            });
+            capture.appendNote(`Share failed — visible state: ${JSON.stringify(visibleState)}`);
+            throw new Error('Instagram did not confirm the post — the share dialog never closed.');
+          }
+          capture.appendNote('Share dialog closed — post confirmed');
+
+          // Try to extract the post URL
+          const postUrl = await page.evaluate(() => {
+            const url = window.location.href;
+            if (url.includes('/p/') || url.includes('/reel/')) return url;
+            return null;
+          });
+
+          return this.buildSuccess(this.platform, 'Published on Instagram.', postUrl);
+        }, 120_000, 'Instagram publish timed out.', options.signal)
           .catch((error) => fail(error instanceof Error ? error.message : 'Instagram publishing failed.'));
 
         await capture.stop();
@@ -217,7 +245,10 @@ export class InstagramAdapter extends BaseAdapter {
     }
   }
 
-  private async isAuthenticated(context: PublishOptions['secret'] extends never ? never : import('playwright').BrowserContext, page: import('playwright').Page) {
+  private async isAuthenticated(
+    context: import('playwright').BrowserContext,
+    page: Page,
+  ) {
     const hasCookies = await this.hasCookies(context, ['sessionid', 'ds_user_id'], [
       this.homeUrl,
       this.loginUrl,
@@ -227,369 +258,235 @@ export class InstagramAdapter extends BaseAdapter {
       return true;
     }
 
-    return this.hasVisibleMarker(page, instagramSelectors.loggedInMarkers);
+    return this.hasVisibleMarker(page, SELECTORS.loggedInMarkers);
   }
 }
 
-async function trySetInstagramFiles(page: import('playwright').Page, files: string[]) {
-  try {
-    return await setInputFilesFirst(page, instagramSelectors.fileInput, files, 8000);
-  } catch {
-    return null;
-  }
-}
+// ---------------------------------------------------------------------------
+// Core helpers — every click uses page.mouse.click at real bounding box
+// coordinates so React event delegation always fires.
+// ---------------------------------------------------------------------------
 
-async function openInstagramUploadFlow(page: import('playwright').Page, files: string[]) {
-  await tryDismissInstagramInterruptions(page);
+/** Scope selectors to the create dialog — the feed has its own Next/Share SVGs. */
+const DIALOG_SELECTOR = 'div[role="dialog"]';
 
-  // 1. Click the sidebar Create button by targeting the SVG with aria-label="New post".
-  //    Use Playwright's real mouse click (not DOM .click()) so React handlers fire.
-  const chooserPromise = page.waitForEvent('filechooser', { timeout: 10_000 }).catch(() => null);
-
-  let clickedCreate = false;
-  try {
-    const svg = page.locator('svg[aria-label="New post"]').first();
-    await svg.waitFor({ state: 'attached', timeout: 8000 });
-    await svg.click({ timeout: 3000, force: true });
-    clickedCreate = true;
-  } catch {
-    // Fallback: try clicking by text "Create" in the sidebar
-    try {
-      await page.locator('span:has-text("Create")').first().click({ timeout: 3000, force: true });
-      clickedCreate = true;
-    } catch {
-      clickedCreate = false;
-    }
-  }
-
-  if (!clickedCreate) {
-    return null;
-  }
-
-  // 2. Wait for the create dialog to appear — it either opens a file chooser
-  //    or shows a dialog with a file input or a Post/Reel menu.
-  await page.waitForTimeout(1500);
-
-  // Try the file chooser first (Instagram may open a native dialog directly)
-  const fileInput = await trySetInstagramFiles(page, files);
-  if (fileInput) {
-    return fileInput;
-  }
-
-  const chooser = await resolveInstagramChooser(chooserPromise, files);
-  if (chooser) {
-    return chooser;
-  }
-
-  // 3. A Post/Reel menu may have appeared — pick Post.
-  const menuChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
-  const pickedType =
-    (await tryClickInstagramAction(page, ['Post'], 3000)) ??
-    (await tryClickFirst(page, instagramSelectors.createMenuEntry, 3000)) ??
-    (await tryClickInstagramAction(page, ['Reel'], 3000));
-
-  if (pickedType) {
-    await page.waitForTimeout(1000);
-
-    const inputAfterMenu = await trySetInstagramFiles(page, files);
-    if (inputAfterMenu) {
-      return inputAfterMenu;
-    }
-
-    const chooserAfterMenu = await resolveInstagramChooser(menuChooserPromise, files);
-    if (chooserAfterMenu) {
-      return chooserAfterMenu;
-    }
-  }
-
-  // 4. Last resort — look for any file input on the page.
-  return trySetInstagramFiles(page, files);
-}
-
-async function resolveInstagramChooser(
-  chooserPromise: Promise<import('playwright').FileChooser | null>,
-  files: string[],
-) {
-  const chooser = await chooserPromise;
-  if (!chooser) {
-    return null;
-  }
-
-  await chooser.setFiles(files);
-  return 'filechooser';
-}
-
-async function waitForInstagramCreateSurface(
-  page: import('playwright').Page,
-  timeout: number,
-) {
+/** Click the first element matching a CSS selector using real mouse coordinates. */
+async function mouseClickElement(page: Page, selector: string, timeout: number): Promise<boolean> {
   const deadline = Date.now() + timeout;
-
   while (Date.now() < deadline) {
-    const inputSelector = await findVisibleInstagramInput(page);
-    if (inputSelector) {
-      return 'file-input';
-    }
-
-    await page.waitForTimeout(250);
-  }
-
-  return null;
-}
-
-async function findVisibleInstagramInput(page: import('playwright').Page) {
-  for (const selector of instagramSelectors.fileInput) {
     const locator = page.locator(selector).first();
     try {
-      if ((await locator.count()) > 0) {
-        return selector;
+      const box = await locator.boundingBox();
+      if (box && box.width > 0 && box.height > 0) {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        return true;
       }
     } catch {
-      continue;
+      // element not ready yet
     }
-  }
-
-  return null;
-}
-
-async function tryDismissInstagramInterruptions(page: import('playwright').Page) {
-  await tryClickInstagramAction(page, ['Not Now', 'Cancel'], 1500);
-}
-
-async function tryClickInstagramAction(
-  page: import('playwright').Page,
-  labels: string[],
-  timeout: number,
-) {
-  const clickedByAccessibleName = await tryClickInstagramAccessibleAction(page, labels, timeout);
-  if (clickedByAccessibleName) {
-    return clickedByAccessibleName;
-  }
-
-  const selectors = labels.flatMap((label) => [
-    `button[aria-label="${label}"]`,
-    `[role="button"][aria-label="${label}"]`,
-    `svg[aria-label="${label}"]`,
-    `button:has-text("${label}")`,
-    `[role="button"]:has-text("${label}")`,
-    `[role="menuitem"]:has-text("${label}")`,
-    `a:has-text("${label}")`,
-  ]);
-
-  const clickedBySelector = await tryClickAnyVisibleInstagramSelector(page, selectors, timeout);
-  if (clickedBySelector) {
-    return clickedBySelector;
-  }
-
-  return tryClickNamedButton(page, labels, timeout);
-}
-
-async function waitForInstagramStage(
-  page: import('playwright').Page,
-  timeout: number,
-): Promise<'advance' | 'compose' | null> {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    if (
-      (await hasVisibleSelector(page, instagramSelectors.caption)) ||
-      (await hasInstagramAccessibleAction(page, ['Share', 'Post']))
-    ) {
-      return 'compose';
-    }
-
-    if (
-      (await hasInstagramAccessibleAction(page, ['Next', 'Continue'])) ||
-      (await hasVisibleSelector(page, instagramSelectors.nextButton))
-    ) {
-      return 'advance';
-    }
-
-    await page.waitForTimeout(400);
-  }
-
-  return null;
-}
-
-async function hasVisibleSelector(page: import('playwright').Page, selectors: string[]) {
-  return (await findVisibleSelector(page, selectors)) !== null;
-}
-
-async function findVisibleSelector(page: import('playwright').Page, selectors: string[]) {
-  for (const selector of selectors) {
-    const locator = page.locator(selector);
-    try {
-      const count = await locator.count();
-      for (let index = 0; index < count; index += 1) {
-        if (await locator.nth(index).isVisible()) {
-          return selector;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
-async function tryClickAnyVisibleInstagramSelector(
-  page: import('playwright').Page,
-  selectors: string[],
-  timeout: number,
-) {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    for (const selector of selectors) {
-      const locator = page.locator(selector);
-      try {
-        const count = await locator.count();
-        for (let index = 0; index < count; index += 1) {
-          const candidate = locator.nth(index);
-          if (!(await candidate.isVisible())) {
-            continue;
-          }
-
-          const enabled = await candidate.evaluate((element) => {
-            if (!(element instanceof HTMLElement)) {
-              return false;
-            }
-
-            if (element.getAttribute('aria-disabled') === 'true') {
-              return false;
-            }
-
-            if ('disabled' in element && (element as HTMLButtonElement).disabled) {
-              return false;
-            }
-
-            return true;
-          });
-
-          if (!enabled) {
-            continue;
-          }
-
-          await candidate.click({ timeout: 1500 });
-          return selector;
-        }
-      } catch {
-        continue;
-      }
-    }
-
     await page.waitForTimeout(300);
   }
-
-  return null;
+  return false;
 }
 
-async function hasInstagramAccessibleAction(
-  page: import('playwright').Page,
-  labels: string[],
-) {
-  return (await findInstagramAccessibleAction(page, labels)) !== null;
-}
-
-async function tryClickInstagramAccessibleAction(
-  page: import('playwright').Page,
-  labels: string[],
-  timeout: number,
-) {
+/**
+ * Click a visible, enabled button/link/menuitem by its accessible text label
+ * using real mouse coordinates.
+ */
+async function mouseClickText(page: Page, label: string, timeout: number): Promise<string | null> {
   const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    const action = await findInstagramAccessibleAction(page, labels);
-    if (action) {
-      await action.locator.click({ timeout: 1500 });
-      return `${action.role}:${action.label}`;
-    }
-
-    await page.waitForTimeout(300);
-  }
-
-  return null;
-}
-
-async function findInstagramAccessibleAction(
-  page: import('playwright').Page,
-  labels: string[],
-) {
   const roles: Array<'button' | 'link' | 'menuitem'> = ['button', 'link', 'menuitem'];
 
-  for (const label of labels) {
-    const name = new RegExp(`^${escapeRegex(label)}$`, 'i');
+  while (Date.now() < deadline) {
     for (const role of roles) {
-      const locator = page.getByRole(role, { name });
+      const locator = page.getByRole(role, { name: label, exact: true });
       try {
         const count = await locator.count();
-        for (let index = 0; index < count; index += 1) {
-          const candidate = locator.nth(index);
-          if (!(await candidate.isVisible())) {
-            continue;
-          }
+        for (let i = 0; i < count; i += 1) {
+          const el = locator.nth(i);
+          if (!(await el.isVisible())) continue;
 
-          const enabled = await candidate.evaluate((element) => {
-            if (!(element instanceof HTMLElement)) {
-              return false;
-            }
-
-            if (element.getAttribute('aria-disabled') === 'true') {
-              return false;
-            }
-
-            if ('disabled' in element && (element as HTMLButtonElement).disabled) {
-              return false;
-            }
-
-            return true;
+          const disabled = await el.evaluate((e) => {
+            if (!(e instanceof HTMLElement)) return true;
+            if (e.getAttribute('aria-disabled') === 'true') return true;
+            if ('disabled' in e && (e as HTMLButtonElement).disabled) return true;
+            return false;
           });
+          if (disabled) continue;
 
-          if (enabled) {
-            return { locator: candidate, label, role };
+          const box = await el.boundingBox();
+          if (box && box.width > 0 && box.height > 0) {
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            return `${role}:${label}`;
           }
         }
       } catch {
         continue;
       }
     }
+    await page.waitForTimeout(300);
   }
-
   return null;
 }
 
-async function tryClickInstagramAccessibleLink(
-  page: import('playwright').Page,
-  labels: string[],
-  timeout: number,
-) {
+/** Dismiss common Instagram popups/interruptions. */
+async function dismissPopups(page: Page) {
+  for (const label of ['OK', 'Ok', 'Not Now', 'Cancel', 'Got it', 'Continue']) {
+    try {
+      const btn = page.getByRole('button', { name: label, exact: true }).first();
+      if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
+        const box = await btn.boundingBox();
+        if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(500);
+      }
+    } catch {
+      // no popup — fine
+    }
+  }
+}
+
+/** Upload files to the Instagram create dialog via file input or file chooser. */
+async function uploadFiles(page: Page, files: string[]): Promise<string | null> {
+  // Try setting files directly on a file input
+  try {
+    const result = await setInputFilesFirst(page, SELECTORS.fileInput, files, 5000);
+    return result;
+  } catch {
+    // no file input found
+  }
+
+  // Fallback: look for a drag-and-drop zone or "Select from computer" button
+  // which triggers a file chooser dialog
+  const chooserPromise = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
+  const clickedSelect = await mouseClickText(page, 'Select from computer', 3000)
+    ?? await mouseClickText(page, 'Select from device', 3000)
+    ?? await mouseClickText(page, 'Select From Computer', 3000);
+
+  if (clickedSelect) {
+    const chooser = await chooserPromise;
+    if (chooser) {
+      await chooser.setFiles(files);
+      return 'filechooser';
+    }
+  }
+
+  // Last resort: wait for file input to appear after the dialog loads
+  try {
+    const result = await setInputFilesFirst(page, SELECTORS.fileInput, files, 8000);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+/** Fill the caption in Instagram's post editor. Handles both textarea and contenteditable. */
+async function fillCaption(page: Page, text: string) {
+  for (const selector of SELECTORS.caption) {
+    const locator = page.locator(selector).first();
+    try {
+      if (await locator.isVisible({ timeout: 3000 })) {
+        // Try Playwright fill first
+        try {
+          await locator.fill(text);
+          return;
+        } catch {
+          // contenteditable — use evaluate
+        }
+        await locator.evaluate((el, value) => {
+          if (el instanceof HTMLElement) {
+            el.focus();
+            el.textContent = value;
+            el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          }
+        }, text);
+        return;
+      }
+    } catch {
+      continue;
+    }
+  }
+  // Caption is optional — don't throw if we can't find the field
+}
+
+/**
+ * Detect which stage the Instagram post editor is in.
+ * - 'compose': caption/share screen is showing
+ * - 'advance': a Next/Continue button is showing (crop or edit screen)
+ * - null: neither detected within timeout
+ */
+/**
+ * After clicking Share, wait for the create dialog to close.
+ * The dialog is gone when the Share/Next SVGs and caption textarea are no longer visible.
+ * Instagram may show a loading animation during upload — keep waiting until the dialog closes
+ * or we see a "Post shared" / "Your reel has been shared" indicator.
+ */
+async function waitForShareDialogToClose(page: Page, timeout: number): Promise<boolean> {
   const deadline = Date.now() + timeout;
 
   while (Date.now() < deadline) {
-    for (const label of labels) {
-      const name = new RegExp(`^${escapeRegex(label)}$`, 'i');
-      const locator = page.getByRole('link', { name });
-      try {
-        const count = await locator.count();
-        for (let index = 0; index < count; index += 1) {
-          const candidate = locator.nth(index);
-          if (await candidate.isVisible()) {
-            await candidate.click({ timeout: 1500 });
-            return `link:${label}`;
-          }
-        }
-      } catch {
-        continue;
+    // Dismiss any popups that appear during sharing (e.g. "Video posts are now shared as reels")
+    await dismissPopups(page);
+
+    // Check if any dialog with create-flow indicators is still visible.
+    // We check for the dialog element containing Crop/Share/Next — the feed
+    // also has Share/Next SVGs, so we must scope to dialogs only.
+    const dialogStillOpen = await page.evaluate(() => {
+      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+      for (const dialog of dialogs) {
+        const rect = dialog.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        // Check if this dialog contains create-flow indicators
+        const hasCreate = dialog.querySelector('svg[aria-label="Share"]')
+          ?? dialog.querySelector('svg[aria-label="Next"]')
+          ?? dialog.querySelector('svg[aria-label="Crop"]')
+          ?? dialog.querySelector('textarea[aria-label="Write a caption..."]')
+          ?? dialog.querySelector('div[aria-label="Write a caption..."]');
+        if (hasCreate) return true;
       }
+      return false;
+    });
+
+    if (!dialogStillOpen) {
+      return true;
     }
 
-    await page.waitForTimeout(300);
+    // Check for error indicators
+    const hasError = await page.evaluate(() => {
+      const body = document.body.textContent ?? '';
+      return body.includes('Something went wrong') || body.includes('Try again');
+    });
+    if (hasError) {
+      return false;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  return false;
+}
+
+async function detectStage(page: Page, timeout: number): Promise<'advance' | 'compose' | null> {
+  const deadline = Date.now() + timeout;
+  const dialog = page.locator(DIALOG_SELECTOR).first();
+
+  while (Date.now() < deadline) {
+    // IMPORTANT: all selectors scoped to the create dialog — the feed behind
+    // has its own Next/Share/etc SVGs on carousel posts that would match.
+    // Check advance FIRST — if Next is visible, we must advance.
+    try {
+      if (await dialog.locator('svg[aria-label="Next"]').first().isVisible({ timeout: 200 })) return 'advance';
+    } catch { /* continue */ }
+    try {
+      if (await dialog.locator('svg[aria-label="Continue"]').first().isVisible({ timeout: 200 })) return 'advance';
+    } catch { /* continue */ }
+
+    // Compose stage: ONLY the Share SVG (within dialog) is a reliable indicator.
+    try {
+      if (await dialog.locator('svg[aria-label="Share"]').first().isVisible({ timeout: 200 })) return 'compose';
+    } catch { /* continue */ }
+
+    await page.waitForTimeout(500);
   }
 
   return null;
-}
-
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

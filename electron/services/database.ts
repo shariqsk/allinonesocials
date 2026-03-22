@@ -296,6 +296,16 @@ export class DatabaseService {
     return job;
   }
 
+  async clearHistory() {
+    this.db.run(
+      `
+        DELETE FROM jobs
+        WHERE status NOT IN ('pending', 'running')
+      `,
+    );
+    await this.persist();
+  }
+
   getJob(jobId: string) {
     return this.listJobs().find((job) => job.id === jobId) ?? null;
   }

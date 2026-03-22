@@ -461,6 +461,17 @@ textarea {
   color: var(--muted);
 }
 
+.result-link {
+  font-size: 0.84rem;
+  color: var(--accent, #4a90d9);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.result-link:hover {
+  text-decoration: underline;
+}
+
 .meta-grid {
   flex-wrap: wrap;
   color: var(--muted);

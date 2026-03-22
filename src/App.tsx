@@ -209,6 +209,13 @@ export default function App() {
     });
   }
 
+  async function clearHistory() {
+    await runAction('Clearing history', async () => {
+      await window.socialDesk.clearHistory();
+      setSuccess('Publish history cleared.');
+    });
+  }
+
   async function publishNow() {
     await runAction('Publishing post', async () => {
       const result = await window.socialDesk.publishNow(composerInput);
@@ -345,7 +352,13 @@ export default function App() {
           />
         ) : null}
         {view === 'scheduled' ? <ScheduledView jobs={snapshot.scheduledJobs} /> : null}
-        {view === 'history' ? <HistoryView jobs={snapshot.history} /> : null}
+        {view === 'history' ? (
+          <HistoryView
+            jobs={snapshot.history}
+            onClearHistory={() => void clearHistory()}
+            clearing={busy === 'Clearing history'}
+          />
+        ) : null}
         {view === 'settings' ? <SettingsView /> : null}
       </main>
     </div>
@@ -840,12 +853,30 @@ function ScheduledView({ jobs }: { jobs: PublishJob[] }) {
   );
 }
 
-function HistoryView({ jobs }: { jobs: PublishJob[] }) {
+function HistoryView({
+  jobs,
+  onClearHistory,
+  clearing,
+}: {
+  jobs: PublishJob[];
+  onClearHistory: () => void;
+  clearing: boolean;
+}) {
   return (
     <section className="panel">
       <div className="panel-header">
         <h3>Publish History</h3>
-        <span>Partial success is tracked per platform</span>
+        <div className="row-actions">
+          <span>Partial success is tracked per platform</span>
+          <button
+            type="button"
+            className="ghost-button ghost-button-danger"
+            onClick={onClearHistory}
+            disabled={jobs.length === 0 || clearing}
+          >
+            {clearing ? 'Clearing…' : 'Clear history'}
+          </button>
+        </div>
       </div>
       <div className="table-list">
         {jobs.map((job) => (
@@ -930,6 +961,16 @@ function JobRow({ job }: { job: PublishJob }) {
               {platformDefinitions[result.platform].displayName}: {result.status}
             </span>
             <span className="result-message">{result.message}</span>
+            {result.postUrl && (
+              <a
+                className="result-link"
+                href={result.postUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View post ↗
+              </a>
+            )}
           </div>
         ))}
       </div>

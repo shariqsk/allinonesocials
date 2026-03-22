@@ -3,6 +3,7 @@ export const ipcChannels = {
   connectAccount: 'socialdesk:connectAccount',
   validateAccount: 'socialdesk:validateAccount',
   disconnectAccount: 'socialdesk:disconnectAccount',
+  clearHistory: 'socialdesk:clearHistory',
   cancelJob: 'socialdesk:cancelJob',
   selectAssets: 'socialdesk:selectAssets',
   saveDraft: 'socialdesk:saveDraft',

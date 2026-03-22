@@ -24,6 +24,7 @@ declare global {
       connectAccount: (input: ConnectAccountInput) => Promise<ConnectAccountResult>;
       validateAccount: (input: ValidateAccountInput) => Promise<ConnectAccountResult>;
       disconnectAccount: (input: DisconnectAccountInput) => Promise<void>;
+      clearHistory: () => Promise<void>;
       cancelJob: (input: CancelJobInput) => Promise<void>;
       selectAssets: () => Promise<SelectAssetsResult>;
       saveDraft: (input: SaveDraftInput) => Promise<SaveDraftResult>;

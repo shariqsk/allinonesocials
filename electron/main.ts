@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, type OpenDialogOptions } from 'electron';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import log from 'electron-log/main';
@@ -71,6 +71,15 @@ function createMainWindow() {
     },
   });
 
+  // Open external links (e.g. post URLs) in the default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
@@ -88,6 +97,9 @@ function registerIpc(manager: SocialManager) {
   );
   ipcMain.handle(ipcChannels.disconnectAccount, async (_event, payload) =>
     manager.disconnectAccount(disconnectAccountInputSchema.parse(payload)),
+  );
+  ipcMain.handle(ipcChannels.clearHistory, async () =>
+    manager.clearHistory(),
   );
   ipcMain.handle(ipcChannels.cancelJob, async (_event, payload) =>
     manager.cancelJob(cancelJobInputSchema.parse(payload)),

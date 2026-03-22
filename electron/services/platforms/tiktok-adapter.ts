@@ -141,7 +141,7 @@ export class TikTokAdapter extends BaseAdapter {
             return fail('TikTok never enabled the Post button after the video upload.');
           }
 
-          // Set up the response listener BEFORE clicking Post to avoid a race condition
+          // Listen for the create API response and success markers BEFORE clicking Post
           const createResponse = page
             .waitForResponse(
               (response) =>
@@ -153,59 +153,74 @@ export class TikTokAdapter extends BaseAdapter {
             )
             .catch(() => null);
 
+          const successMarkerPromise = waitForAnySelector(page, tiktokSelectors.successMarkers, 30_000);
+          const urlChangePromise = page.waitForURL((url) => !url.toString().includes('/upload'), { timeout: 30_000 }).then(() => true).catch(() => false);
+
           await clickTikTokPostButton(page, postButtonSelector);
           capture.appendNote(`TikTok submit clicked by selector: ${postButtonSelector}`);
 
-          // TikTok may show a "Continue to post?" modal while still checking the video.
-          // Click "Post now" to proceed without waiting for the check to finish.
-          await page.waitForTimeout(2000);
-          const continuedPost = await page.evaluate(() => {
-            // Find any modal/dialog with "Continue to post" text
-            const allButtons = Array.from(document.querySelectorAll('button, [role="button"]'));
-            for (const btn of allButtons) {
-              const text = btn.textContent?.trim() ?? '';
-              if (text === 'Post now' || text === 'Post Now') {
-                if (btn instanceof HTMLElement) {
-                  btn.click();
-                  return text;
+          // TikTok may show a "Continue to post?" modal — handle it in parallel
+          const continuePostWatcher = (async () => {
+            const deadline = Date.now() + 8000;
+            while (Date.now() < deadline) {
+              const clicked = await page.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+                for (const btn of btns) {
+                  const text = btn.textContent?.trim() ?? '';
+                  if (text === 'Post now' || text === 'Post Now') {
+                    if (btn instanceof HTMLElement) { btn.click(); return text; }
+                  }
                 }
-              }
+                return null;
+              });
+              if (clicked) return clicked;
+              await page.waitForTimeout(500);
             }
             return null;
-          });
-          if (continuedPost) {
-            capture.appendNote(`TikTok "Continue to post?" modal dismissed with: ${continuedPost}`);
-          }
+          })();
 
-          await options.onProgress?.('Waiting for TikTok to confirm the post (up to 30s)');
-          const [response, successMarker] = await Promise.all([
-            createResponse,
-            waitForAnySelector(page, tiktokSelectors.successMarkers, 20_000),
+          await options.onProgress?.('Posting to TikTok');
+
+          // Race: whichever confirms first wins
+          const result = await Promise.race([
+            createResponse.then(async (response) => {
+              if (!response) return null;
+              const submission = await readTikTokSubmissionResult(response);
+              if (submission.ok) return { type: 'api', success: true } as const;
+              if (!response.ok()) return { type: 'api', success: false, detail: `TikTok rejected the upload with HTTP ${response.status()}.` } as const;
+              return { type: 'api', success: false, detail: submission.detail } as const;
+            }),
+            successMarkerPromise.then((marker) => marker ? { type: 'marker', success: true } as const : null),
+            urlChangePromise.then((changed) => changed ? { type: 'url', success: true } as const : null),
           ]);
 
-          const submission = response ? await readTikTokSubmissionResult(response) : { ok: false, detail: null };
+          void continuePostWatcher.then((clicked) => {
+            if (clicked) capture.appendNote(`TikTok "Continue to post?" dismissed with: ${clicked}`);
+          });
 
-          // If TikTok shows success markers (e.g. "Manage posts"), trust that even without the API response
-          if (successMarker || (!page.url().includes('/upload') && !response)) {
-            return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
+          if (result?.success) {
+            capture.appendNote(`TikTok confirmed via: ${result.type}`);
+            const postUrl = await extractTikTokPostUrl(page);
+            return this.buildSuccess(this.platform, 'Published on TikTok.', postUrl);
           }
 
-          if (submission.ok) {
-            return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
+          if (result && !result.success && 'detail' in result && result.detail) {
+            return fail(result.detail);
           }
 
-          if (response && !response.ok()) {
-            return fail(
-              `TikTok rejected the upload request with HTTP ${response.status()}.`,
-            );
-          }
+          // If race returned null, wait for any remaining signal
+          const fallback = await Promise.race([
+            createResponse,
+            successMarkerPromise,
+          ]);
 
-          if (response && submission.detail) {
-            return fail(submission.detail);
+          if (fallback) {
+            const postUrl = await extractTikTokPostUrl(page);
+            return this.buildSuccess(this.platform, 'Published on TikTok.', postUrl);
           }
 
           return fail(
-            'TikTok did not confirm a real post creation after clicking Post.',
+            'TikTok did not confirm the post was created.',
           );
         }, 70_000, 'TikTok publish timed out before the upload was confirmed.', options.signal)
           .catch((error) => fail(error instanceof Error ? error.message : 'TikTok publishing failed.'));
@@ -333,6 +348,37 @@ async function readTikTokSubmissionResult(response: import('playwright').Respons
       ok: response.ok(),
       detail: response.ok() ? null : `TikTok rejected the post with HTTP ${response.status()}.`,
     };
+  }
+}
+
+async function extractTikTokPostUrl(page: import('playwright').Page): Promise<string | null> {
+  try {
+    // After posting, TikTok may show "Manage posts" with a link to the video,
+    // or redirect to the video page.
+    await page.waitForTimeout(2000);
+    const url = page.url();
+
+    // If we're on a video page already, use it
+    if (url.includes('/video/')) return url;
+
+    // Look for a link to the posted video on the success/manage posts page
+    const postUrl = await page.evaluate(() => {
+      // "Manage posts" page may have links to the video
+      const links = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+      if (links.length > 0) {
+        return (links[0] as HTMLAnchorElement).href;
+      }
+      // Try to find the username for building a profile URL at minimum
+      const profileLink = document.querySelector('a[href*="/@"]');
+      if (profileLink) {
+        return (profileLink as HTMLAnchorElement).href;
+      }
+      return null;
+    });
+
+    return postUrl;
+  } catch {
+    return null;
   }
 }
 

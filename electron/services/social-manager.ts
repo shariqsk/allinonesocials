@@ -206,6 +206,11 @@ export class SocialManager {
     return { job };
   }
 
+  async clearHistory() {
+    await this.dependencies.database.clearHistory();
+    this.dependencies.onSnapshot();
+  }
+
   async cancelJob(input: CancelJobInput) {
     const job = this.dependencies.database.getJob(input.jobId);
     if (!job) {

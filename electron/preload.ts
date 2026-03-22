@@ -25,6 +25,8 @@ const api = {
     ipcRenderer.invoke(ipcChannels.validateAccount, input) as Promise<ConnectAccountResult>,
   disconnectAccount: (input: DisconnectAccountInput) =>
     ipcRenderer.invoke(ipcChannels.disconnectAccount, input) as Promise<void>,
+  clearHistory: () =>
+    ipcRenderer.invoke(ipcChannels.clearHistory) as Promise<void>,
   cancelJob: (input: CancelJobInput) =>
     ipcRenderer.invoke(ipcChannels.cancelJob, input) as Promise<void>,
   selectAssets: () =>
