@@ -611,8 +611,8 @@ async function mouseClickElement(page: Page, selector: string, timeout: number):
  * Only dismisses safe labels — NOT Cancel/Continue which can interfere with the create flow.
  */
 async function dismissPopups(page: Page) {
-  await page.evaluate(() => {
-    // Only dismiss actual popup buttons, never Cancel/Continue which could close the create dialog
+  // Find popup button coordinates via evaluate, then mouse-click (React needs real mouse events)
+  const coords = await page.evaluate(() => {
     const safeLabels = ['OK', 'Ok', 'Not Now', 'Got it'];
     const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
     for (const btn of buttons) {
@@ -620,12 +620,15 @@ async function dismissPopups(page: Page) {
       if (text && safeLabels.includes(text)) {
         const rect = btn.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
-          (btn as HTMLElement).click();
-          return;
+          return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
         }
       }
     }
+    return null;
   });
+  if (coords) {
+    await page.mouse.click(coords.x, coords.y);
+  }
 }
 
 /** Upload files to the Instagram create dialog via file input or file chooser. */

@@ -123,7 +123,15 @@ export class TikTokAdapter extends BaseAdapter {
           capture.appendNote('Navigating to TikTok upload workspace');
           await page.goto('https://www.tiktok.com/tiktokstudio/upload?from=webapp', {
             waitUntil: 'domcontentloaded',
+            timeout: 15_000,
+          }).catch(() => {
+            // If domcontentloaded times out, page may still be usable
+            capture.appendNote('TikTok page load slow, continuing anyway');
           });
+
+          // Dismiss any blocking modals (stale editing sessions, tooltips, etc.)
+          await page.waitForTimeout(1000);
+          await dismissTikTokBlockingModals(page, capture);
 
           await options.onProgress?.('Uploading the TikTok video');
           await setInputFilesFirst(page, tiktokSelectors.fileInput, [video.path], 12_000);
@@ -148,7 +156,10 @@ export class TikTokAdapter extends BaseAdapter {
                 response.request().method() === 'POST' &&
                 (response.url().includes('/api/post/item_create/') ||
                   response.url().includes('/web/project/post/create/') ||
-                  response.url().includes('/api/post/publish/')),
+                  response.url().includes('/api/post/publish/') ||
+                  response.url().includes('/api/v1/web/project/post/') ||
+                  response.url().includes('/post/create') ||
+                  response.url().includes('/creation/publish')),
               { timeout: 30_000 },
             )
             .catch(() => null);
@@ -157,23 +168,31 @@ export class TikTokAdapter extends BaseAdapter {
           const urlChangePromise = page.waitForURL((url) => !url.toString().includes('/upload'), { timeout: 30_000 }).then(() => true).catch(() => false);
 
           await clickTikTokPostButton(page, postButtonSelector);
-          capture.appendNote(`TikTok submit clicked by selector: ${postButtonSelector}`);
+          capture.appendNote(`TikTok submit clicked: ${postButtonSelector}`);
 
-          // TikTok may show a "Continue to post?" modal — handle it in parallel
+          // TikTok may show a "Continue to post?" or copyright modal — handle it in parallel
           const continuePostWatcher = (async () => {
-            const deadline = Date.now() + 8000;
+            const confirmLabels = ['Post now', 'Post Now', 'Post anyway'];
+            const deadline = Date.now() + 12_000;
             while (Date.now() < deadline) {
-              const clicked = await page.evaluate(() => {
+              // Use page.evaluate to find the button coordinates, then mouse click
+              const btnCoords = await page.evaluate((labels) => {
                 const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
                 for (const btn of btns) {
                   const text = btn.textContent?.trim() ?? '';
-                  if (text === 'Post now' || text === 'Post Now') {
-                    if (btn instanceof HTMLElement) { btn.click(); return text; }
+                  if (labels.includes(text)) {
+                    const rect = btn.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text };
+                    }
                   }
                 }
                 return null;
-              });
-              if (clicked) return clicked;
+              }, confirmLabels);
+              if (btnCoords) {
+                await page.mouse.click(btnCoords.x, btnCoords.y);
+                return btnCoords.text;
+              }
               await page.waitForTimeout(500);
             }
             return null;
@@ -259,9 +278,27 @@ async function dismissTikTokBlockingModals(
   page: import('playwright').Page,
   capture: { appendNote: (note: string) => void },
 ) {
-  const clickedByName = await clickNamedButton(page, ['Got it'], 1500).catch(() => null);
-  if (clickedByName) {
-    capture.appendNote(`Dismissed TikTok blocking modal with: ${clickedByName}`);
+  // Dismiss known blocking modals using mouse clicks at coordinates.
+  // "Got it" = intro tooltips, "Discard" = stale editing session recovery dialog.
+  const dismissLabels = ['Got it', 'Discard'];
+  for (let round = 0; round < 3; round += 1) {
+    const btnCoords = await page.evaluate((labels) => {
+      const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+      for (const btn of btns) {
+        const text = btn.textContent?.trim() ?? '';
+        if (labels.includes(text)) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text };
+          }
+        }
+      }
+      return null;
+    }, dismissLabels);
+    if (!btnCoords) break;
+    await page.mouse.click(btnCoords.x, btnCoords.y);
+    capture.appendNote(`Dismissed TikTok modal: "${btnCoords.text}"`);
+    await page.waitForTimeout(500);
   }
 }
 
@@ -386,28 +423,7 @@ async function clickTikTokPostButton(
   page: import('playwright').Page,
   selector: string,
 ) {
-  const button =
-    selector === 'button[data-e2e="post_video_button"]'
-      ? page.locator('button[data-e2e="post_video_button"]').first()
-      : page.locator(selector).first();
-
-  await button.click({ timeout: 2_000 }).catch(async () => {
-    await page.evaluate(() => {
-      const cancelModal = Array.from(document.querySelectorAll('div[role="dialog"]')).find((dialog) =>
-        dialog.textContent?.includes('Sure you want to cancel your upload?'),
-      );
-      if (!cancelModal) {
-        return;
-      }
-
-      const keepEditing = Array.from(cancelModal.querySelectorAll('button')).find((button) =>
-        button.textContent?.trim() === 'No',
-      );
-      if (keepEditing instanceof HTMLElement) {
-        keepEditing.click();
-      }
-    });
-
-    await page.locator('button[data-e2e="post_video_button"]').first().click({ timeout: 2_000, force: true });
-  });
+  const button = page.locator(selector).first();
+  await button.scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await button.click({ timeout: 5_000 });
 }
