@@ -37,7 +37,7 @@ export class TikTokAdapter extends BaseAdapter {
 
   async connect(options: ConnectOptions): Promise<SessionSummary> {
     return this.withContext(options.profileDir, async (context, page) => {
-      await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
+      await page.goto(this.loginUrl, { waitUntil: 'domcontentloaded' });
       await page.bringToFront();
 
       const authenticated = await this.waitForAuthenticatedSession(
@@ -64,9 +64,7 @@ export class TikTokAdapter extends BaseAdapter {
 
   async validateSession(secret: PublishOptions['secret']): Promise<SessionSummary> {
     return this.withContext(secret.profileDir, async (context, page) => {
-      await page.goto(this.homeUrl, { waitUntil: 'domcontentloaded' });
-
-      if (!(await this.isAuthenticated(context, page))) {
+      if (!(await this.hasSessionCookies(context))) {
         return this.buildAttentionSummary(
           'TikTok account',
           'Login expired or TikTok needs another checkpoint before publishing.',
@@ -144,17 +142,19 @@ export class TikTokAdapter extends BaseAdapter {
 
   private async isAuthenticated(
     context: PublishOptions['secret'] extends never ? never : import('playwright').BrowserContext,
-    page: import('playwright').Page,
+    _page: import('playwright').Page,
   ) {
-    const hasCookies = await this.hasCookies(context, ['sessionid'], [
-      this.homeUrl,
-      this.loginUrl,
-    ]);
+    return this.hasSessionCookies(context);
+  }
 
-    if (hasCookies) {
-      return true;
-    }
-
-    return this.hasVisibleMarker(page, tiktokSelectors.loggedInMarkers);
+  private async hasSessionCookies(
+    context: PublishOptions['secret'] extends never ? never : import('playwright').BrowserContext,
+  ) {
+    const cookies = await context.cookies([this.homeUrl, this.loginUrl]);
+    return cookies.some(
+      (cookie) =>
+        ['sessionid', 'sessionid_ss', 'sid_guard'].includes(cookie.name) &&
+        Boolean(cookie.value),
+    );
   }
 }

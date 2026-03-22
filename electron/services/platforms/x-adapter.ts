@@ -4,7 +4,13 @@ import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSumm
 const xSelectors = {
   composer: ['div[role="textbox"][data-testid="tweetTextarea_0"]', 'div[role="textbox"]'],
   fileInput: ['input[data-testid="fileInput"]', 'input[type="file"]'],
-  postButton: ['button[data-testid="tweetButton"]', 'div[data-testid="tweetButtonInline"]'],
+  postButton: [
+    'button[data-testid="tweetButton"]',
+    '[data-testid="tweetButton"]',
+    'div[data-testid="tweetButtonInline"]',
+    'button[aria-label="Post"]',
+    'button:has-text("Post")',
+  ],
   loggedInMarkers: [
     'a[data-testid="SideNav_NewTweet_Button"]',
     '[data-testid="AppTabBar_Home_Link"]',
@@ -86,7 +92,7 @@ export class XAdapter extends BaseAdapter {
           )
           .catch(() => null);
 
-        await clickFirst(page, xSelectors.postButton);
+        await clickFirst(page, xSelectors.postButton, 12_000);
 
         const response = await createPostResponse;
         if (!response) {

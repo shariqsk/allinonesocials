@@ -1,4 +1,4 @@
-import { clickFirst, fillFirst, setInputFilesFirst } from './adapter-utils';
+import { clickFirst, fillFirst, setInputFilesFirst, tryClickFirst } from './adapter-utils';
 import { BaseAdapter, type ConnectOptions, type PublishOptions, type SessionSummary } from './base';
 
 const instagramSelectors = {
@@ -10,9 +10,17 @@ const instagramSelectors = {
   ],
   createButton: ['a[href="/create/select/"]', '[aria-label="New post"]'],
   fileInput: ['input[type="file"]', 'input[accept*="image"]', 'input[multiple]'],
-  nextButton: ['text=Next'],
+  nextButton: [
+    'button:has-text("Next")',
+    'div[role="button"]:has-text("Next")',
+    'text=Next',
+  ],
   caption: ['textarea[aria-label="Write a caption..."]', 'textarea'],
-  shareButton: ['text=Share'],
+  shareButton: [
+    'button:has-text("Share")',
+    'div[role="button"]:has-text("Share")',
+    'text=Share',
+  ],
 };
 
 export class InstagramAdapter extends BaseAdapter {
@@ -95,10 +103,10 @@ export class InstagramAdapter extends BaseAdapter {
           }
         }
 
-        await clickFirst(page, instagramSelectors.nextButton, 4000);
-        await clickFirst(page, instagramSelectors.nextButton, 4000);
+        await clickFirst(page, instagramSelectors.nextButton, 15_000);
+        await tryClickFirst(page, instagramSelectors.nextButton, 8_000);
         await fillFirst(page, instagramSelectors.caption, options.payload.body, 4000);
-        await clickFirst(page, instagramSelectors.shareButton, 4000);
+        await clickFirst(page, instagramSelectors.shareButton, 15_000);
         await page.waitForTimeout(1000);
 
         return this.buildSuccess(this.platform, 'Published on Instagram.', page.url());

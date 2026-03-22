@@ -15,6 +15,14 @@ export async function clickFirst(page: Page, selectors: string[], timeout = 1500
   throw new Error(`Could not click any selector: ${selectors.join(', ')}`);
 }
 
+export async function tryClickFirst(page: Page, selectors: string[], timeout = 1500) {
+  try {
+    return await clickFirst(page, selectors, timeout);
+  } catch {
+    return null;
+  }
+}
+
 export async function fillFirst(page: Page, selectors: string[], value: string, timeout = 1500) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
