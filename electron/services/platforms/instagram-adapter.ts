@@ -99,7 +99,7 @@ export class InstagramAdapter extends BaseAdapter {
         await clickFirst(page, instagramSelectors.nextButton, 4000);
         await fillFirst(page, instagramSelectors.caption, options.payload.body, 4000);
         await clickFirst(page, instagramSelectors.shareButton, 4000);
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(1000);
 
         return this.buildSuccess(this.platform, 'Published on Instagram.', page.url());
       }, { headless: true });

@@ -215,56 +215,53 @@ export class SocialManager {
     await this.dependencies.database.updateJob(job);
     this.dependencies.onSnapshot();
 
-    const results: PlatformPublishResult[] = [];
+    const results = await Promise.all(
+      job.payload.selectedPlatforms.map(async (platform) => {
+        const account = this.dependencies.database.getLatestConnectedAccount(platform);
+        if (!account) {
+          return {
+            platform,
+            status: 'failed' as const,
+            message: `No connected ${platformDefinitions[platform].displayName} account is available.`,
+            publishedAt: null,
+            postUrl: null,
+          };
+        }
 
-    for (const platform of job.payload.selectedPlatforms) {
-      const account = this.dependencies.database.getLatestConnectedAccount(platform);
-      if (!account) {
-        results.push({
-          platform,
-          status: 'failed',
-          message: `No connected ${platformDefinitions[platform].displayName} account is available.`,
-          publishedAt: null,
-          postUrl: null,
-        });
-        continue;
-      }
+        const secret = this.dependencies.secureStore.getAccountSecret(account.id);
+        if (!secret) {
+          return {
+            platform,
+            status: 'failed' as const,
+            message: 'Local session could not be loaded.',
+            publishedAt: null,
+            postUrl: null,
+          };
+        }
 
-      const secret = this.dependencies.secureStore.getAccountSecret(account.id);
-      if (!secret) {
-        results.push({
-          platform,
-          status: 'failed',
-          message: 'Local session could not be loaded.',
-          publishedAt: null,
-          postUrl: null,
-        });
-        continue;
-      }
+        const adapter = this.registry.get(platform);
+        const session = await adapter.validateSession(secret);
+        if (session.status !== 'connected') {
+          const updatedAccount: PlatformAccount = {
+            ...account,
+            status: session.status,
+            detail: session.detail,
+            updatedAt: nowIso(),
+            lastValidatedAt: nowIso(),
+          };
+          await this.dependencies.database.upsertAccount(updatedAccount);
+          return {
+            platform,
+            status: 'failed' as const,
+            message: session.detail,
+            publishedAt: null,
+            postUrl: null,
+          };
+        }
 
-      const adapter = this.registry.get(platform);
-      const session = await adapter.validateSession(secret);
-      if (session.status !== 'connected') {
-        const updatedAccount: PlatformAccount = {
-          ...account,
-          status: session.status,
-          detail: session.detail,
-          updatedAt: nowIso(),
-          lastValidatedAt: nowIso(),
-        };
-        await this.dependencies.database.upsertAccount(updatedAccount);
-        results.push({
-          platform,
-          status: 'failed',
-          message: session.detail,
-          publishedAt: null,
-          postUrl: null,
-        });
-        continue;
-      }
-
-      results.push(await adapter.publish({ account, secret, payload: job.payload }));
-    }
+        return adapter.publish({ account, secret, payload: job.payload });
+      }),
+    );
 
     const finalStatus = deriveFinalStatus(results);
     const finishedAt = nowIso();

@@ -75,11 +75,11 @@ export class XAdapter extends BaseAdapter {
             xSelectors.fileInput,
             options.payload.assets.map((asset) => asset.path),
           );
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(250);
         }
 
         await clickFirst(page, xSelectors.postButton);
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(800);
 
         return this.buildSuccess(this.platform, 'Published on X.', page.url());
       }, { headless: true });

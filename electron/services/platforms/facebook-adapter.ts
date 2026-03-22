@@ -76,11 +76,11 @@ export class FacebookAdapter extends BaseAdapter {
             facebookSelectors.fileInput,
             options.payload.assets.map((asset) => asset.path),
           );
-          await page.waitForTimeout(1500);
+          await page.waitForTimeout(400);
         }
 
         await clickFirst(page, facebookSelectors.postButton, 4000);
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(800);
 
         return this.buildSuccess(this.platform, 'Published on Facebook.', page.url());
       }, { headless: true });
