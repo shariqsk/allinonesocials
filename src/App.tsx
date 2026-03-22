@@ -1043,7 +1043,7 @@ function JobRow({ job }: { job: PublishJob }) {
           : 'attention';
 
   return (
-    <article className="row-card">
+    <article className={`row-card row-card-${job.status}`}>
       <div>
         <div className="row-heading">
           <strong>{job.payload.selectedPlatforms.join(', ')}</strong>

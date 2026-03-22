@@ -882,9 +882,9 @@ textarea {
 
 .status-connected,
 .result-pill-success {
-  background: color-mix(in srgb, var(--success-soft) 96%, transparent);
+  background: color-mix(in srgb, var(--success) 18%, #eefaf2 82%);
   color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
 }
 
 .status-attention,
@@ -1142,7 +1142,10 @@ textarea {
 }
 
 .posting-platform-done {
-  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 95%),
+    color-mix(in srgb, var(--success) 14%, var(--glass-strong));
 }
 
 .posting-platform-failed {
@@ -1178,6 +1181,21 @@ textarea {
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.row-card-completed {
+  border-color: color-mix(in srgb, var(--success) 34%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 90%),
+    color-mix(in srgb, var(--success) 10%, var(--glass-strong));
+}
+
+.row-card-completed .row-heading strong {
+  color: var(--success);
+}
+
+.row-card-partial {
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
 }
 
 .preview-card p,
