@@ -129,11 +129,13 @@ export default function App() {
   }
 
   async function openAssetPicker() {
-    await runAction('Selecting images', async () => {
+    await runAction('Selecting media', async () => {
       const result = await window.socialDesk.selectAssets();
       if (result.assets.length > 0) {
         setAssets(result.assets);
-        setSuccess(`${result.assets.length} image${result.assets.length === 1 ? '' : 's'} selected.`);
+        const imageCount = result.assets.filter((asset) => asset.mediaKind === 'image').length;
+        const videoCount = result.assets.filter((asset) => asset.mediaKind === 'video').length;
+        setSuccess(buildMediaSelectionMessage(imageCount, videoCount));
       }
     });
   }
@@ -534,7 +536,7 @@ function ComposerView(props: ComposerViewProps) {
           <span>Images</span>
           <div className="asset-picker-row">
             <button type="button" className="ghost-button" onClick={onSelectAssets}>
-              Choose images
+              Choose media
             </button>
             <span className="muted-copy">
               Uses the native file picker so local file paths persist correctly.
@@ -547,7 +549,9 @@ function ComposerView(props: ComposerViewProps) {
             <div className="asset-chip" key={asset.id}>
               <div>
                 <strong>{asset.name}</strong>
-                <span>{Math.round(asset.size / 1024)} KB</span>
+                <span>
+                  {asset.mediaKind === 'video' ? 'Video' : 'Image'} · {Math.round(asset.size / 1024)} KB
+                </span>
               </div>
               <button
                 type="button"
@@ -558,7 +562,7 @@ function ComposerView(props: ComposerViewProps) {
               </button>
             </div>
           ))}
-          {assets.length === 0 ? <EmptyState text="No images added yet." compact /> : null}
+          {assets.length === 0 ? <EmptyState text="No media added yet." compact /> : null}
         </div>
 
         <div className="platform-selector">
@@ -645,6 +649,7 @@ function ComposerView(props: ComposerViewProps) {
               <p>{body || 'Your draft text will preview here.'}</p>
               <div className="meta-grid">
                 <span>{target.assetCount} images</span>
+                <span>{target.videoCount > 0 ? `${target.videoCount} video` : `${target.imageCount} images`}</span>
                 <span>
                   {target.remainingCharacters === null
                     ? 'No shared limit'
@@ -800,6 +805,17 @@ function getErrorMessage(error: unknown) {
   }
 
   return 'An unexpected error occurred.';
+}
+
+function buildMediaSelectionMessage(imageCount: number, videoCount: number) {
+  const parts: string[] = [];
+  if (imageCount > 0) {
+    parts.push(`${imageCount} image${imageCount === 1 ? '' : 's'}`);
+  }
+  if (videoCount > 0) {
+    parts.push(`${videoCount} video${videoCount === 1 ? '' : 's'}`);
+  }
+  return `${parts.join(' and ')} selected.`;
 }
 
 function buildPrimaryAccounts(accounts: PlatformAccount[]) {

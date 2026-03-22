@@ -78,8 +78,30 @@ export class XAdapter extends BaseAdapter {
           await page.waitForTimeout(250);
         }
 
+        const createPostResponse = page
+          .waitForResponse(
+            (response) =>
+              response.request().method() === 'POST' && isXCreatePostUrl(response.url()),
+            { timeout: 12_000 },
+          )
+          .catch(() => null);
+
         await clickFirst(page, xSelectors.postButton);
-        await page.waitForTimeout(800);
+
+        const response = await createPostResponse;
+        if (!response) {
+          return this.buildFailure(
+            this.platform,
+            'X did not confirm post creation after the publish click. Nothing was marked as posted.',
+          );
+        }
+
+        if (!response.ok()) {
+          return this.buildFailure(
+            this.platform,
+            `X rejected the publish request with HTTP ${response.status()}.`,
+          );
+        }
 
         return this.buildSuccess(this.platform, 'Published on X.', page.url());
       }, { headless: true });
@@ -103,4 +125,13 @@ export class XAdapter extends BaseAdapter {
 
     return this.hasVisibleMarker(page, xSelectors.loggedInMarkers);
   }
+}
+
+function isXCreatePostUrl(url: string) {
+  return (
+    url.includes('/CreateTweet') ||
+    url.includes('/CreatePost') ||
+    url.includes('/TweetCreate') ||
+    url.includes('/graphql/') && (url.includes('CreateTweet') || url.includes('CreatePost'))
+  );
 }

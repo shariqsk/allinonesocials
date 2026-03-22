@@ -90,12 +90,20 @@ function registerIpc(manager: SocialManager) {
   );
   ipcMain.handle(ipcChannels.selectAssets, async () => {
     const dialogOptions: OpenDialogOptions = {
-      title: 'Select images',
+      title: 'Select media',
       properties: ['openFile', 'multiSelections'],
       filters: [
         {
+          name: 'Media',
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'm4v'],
+        },
+        {
           name: 'Images',
           extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
+        },
+        {
+          name: 'Videos',
+          extensions: ['mp4', 'mov', 'webm', 'm4v'],
         },
       ],
     };
@@ -116,6 +124,7 @@ function registerIpc(manager: SocialManager) {
           name: path.basename(filePath),
           size: fileStats.size,
           mimeType: getMimeType(filePath),
+          mediaKind: getMediaKind(filePath),
         };
       }),
     );
@@ -167,7 +176,24 @@ function getMimeType(filePath: string) {
   if (extension === '.webp') {
     return 'image/webp';
   }
+  if (extension === '.mp4') {
+    return 'video/mp4';
+  }
+  if (extension === '.mov') {
+    return 'video/quicktime';
+  }
+  if (extension === '.webm') {
+    return 'video/webm';
+  }
+  if (extension === '.m4v') {
+    return 'video/x-m4v';
+  }
   return 'image/*';
+}
+
+function getMediaKind(filePath: string) {
+  const mimeType = getMimeType(filePath);
+  return mimeType.startsWith('video/') ? 'video' : 'image';
 }
 
 app.on('window-all-closed', () => {

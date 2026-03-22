@@ -9,31 +9,37 @@ export const platformDefinitions: PlatformDefinitionMap = {
   x: {
     id: 'x',
     displayName: 'X',
-    description: 'Short-form publishing with live text and image posting.',
+    description: 'Short-form publishing with text, images, or a single video.',
     badge: 'X',
     textLimit: 280,
     minAssets: 0,
     maxAssets: 4,
+    maxVideos: 1,
+    allowMixedMedia: false,
     enabled: true,
   },
   facebook: {
     id: 'facebook',
     displayName: 'Facebook',
-    description: 'Page and timeline style posting with flexible copy length.',
+    description: 'Page and timeline style posting with images or a single video.',
     badge: 'F',
     textLimit: 63206,
     minAssets: 0,
     maxAssets: 10,
+    maxVideos: 1,
+    allowMixedMedia: false,
     enabled: true,
   },
   instagram: {
     id: 'instagram',
     displayName: 'Instagram',
-    description: 'Image-first publishing. Feed posts require at least one asset.',
+    description: 'Feed-style publishing with images or a single video.',
     badge: 'I',
     textLimit: 2200,
     minAssets: 1,
     maxAssets: 10,
+    maxVideos: 1,
+    allowMixedMedia: false,
     enabled: true,
   },
   tiktok: {
@@ -44,6 +50,8 @@ export const platformDefinitions: PlatformDefinitionMap = {
     textLimit: null,
     minAssets: 1,
     maxAssets: 1,
+    maxVideos: 1,
+    allowMixedMedia: false,
     enabled: false,
     defaultBlockedReason: 'TikTok is scaffolded but excluded from the unified v1 publish flow.',
   },
@@ -56,6 +64,8 @@ export function uniquePlatforms(platforms: PlatformId[]) {
 export function buildTargetStates(input: ComposerInput): PlatformTargetState[] {
   const textLength = input.body.trim().length;
   const assetCount = input.assets.length;
+  const imageCount = input.assets.filter((asset) => asset.mediaKind === 'image').length;
+  const videoCount = input.assets.filter((asset) => asset.mediaKind === 'video').length;
 
   return uniquePlatforms(input.selectedPlatforms).map((platform) => {
     const definition = platformDefinitions[platform];
@@ -73,14 +83,24 @@ export function buildTargetStates(input: ComposerInput): PlatformTargetState[] {
 
     if (assetCount < definition.minAssets) {
       reasons.push(
-        `${definition.displayName} requires at least ${definition.minAssets} image${definition.minAssets === 1 ? '' : 's'}.`,
+        `${definition.displayName} requires at least ${definition.minAssets} media file${definition.minAssets === 1 ? '' : 's'}.`,
       );
     }
 
-    if (assetCount > definition.maxAssets) {
+    if (imageCount > definition.maxAssets) {
       reasons.push(
         `${definition.displayName} supports up to ${definition.maxAssets} image${definition.maxAssets === 1 ? '' : 's'}.`,
       );
+    }
+
+    if (videoCount > definition.maxVideos) {
+      reasons.push(
+        `${definition.displayName} supports up to ${definition.maxVideos} video${definition.maxVideos === 1 ? '' : 's'}.`,
+      );
+    }
+
+    if (!definition.allowMixedMedia && imageCount > 0 && videoCount > 0) {
+      reasons.push(`${definition.displayName} does not support mixing images and videos in this app yet.`);
     }
 
     return {
@@ -92,6 +112,8 @@ export function buildTargetStates(input: ComposerInput): PlatformTargetState[] {
       remainingCharacters:
         definition.textLimit === null ? null : definition.textLimit - textLength,
       assetCount,
+      imageCount,
+      videoCount,
     };
   });
 }
@@ -105,7 +127,7 @@ export function validateComposer(input: ComposerInput) {
     return {
       valid: false,
       targets,
-      message: 'Add text or at least one image before saving or posting.',
+      message: 'Add text or at least one image or video before saving or posting.',
     };
   }
 

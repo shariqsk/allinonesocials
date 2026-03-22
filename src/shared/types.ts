@@ -11,6 +11,7 @@ export type JobStatus =
   | 'partial'
   | 'missed';
 export type PublishResultStatus = 'success' | 'failed' | 'skipped';
+export type MediaKind = 'image' | 'video';
 
 export interface ImportedAsset {
   id: string;
@@ -18,6 +19,7 @@ export interface ImportedAsset {
   name: string;
   size: number;
   mimeType: string;
+  mediaKind: MediaKind;
 }
 
 export interface ComposerInput {
@@ -51,6 +53,8 @@ export interface PlatformTargetState {
   textLength: number;
   remainingCharacters: number | null;
   assetCount: number;
+  imageCount: number;
+  videoCount: number;
 }
 
 export interface PlatformPublishResult {
@@ -81,6 +85,8 @@ export interface PlatformDefinition {
   textLimit: number | null;
   minAssets: number;
   maxAssets: number;
+  maxVideos: number;
+  allowMixedMedia: boolean;
   enabled: boolean;
   defaultBlockedReason?: string;
 }
