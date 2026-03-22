@@ -23,10 +23,9 @@ const tiktokSelectors = {
     'textarea',
   ],
   postButton: [
-    'button:has-text("Post")',
     'button[data-e2e="post_video_button"]',
+    'button[data-e2e="post_video_button"] .Button__content',
     'button:has-text("Publish")',
-    'button[data-e2e*="post"]',
     'button[aria-label*="Post"]',
     '[role="button"]:has-text("Post")',
     '[role="button"]:has-text("Publish")',
@@ -39,11 +38,14 @@ const tiktokSelectors = {
     '[role="button"]:has-text("Cancel")',
     '[role="button"]:has-text("Got it")',
   ],
+  continuePostButton: [
+    'button:has-text("Post now")',
+    '[role="button"]:has-text("Post now")',
+    'button:has-text("Continue to post")',
+  ],
   successMarkers: [
-    'text=Uploaded',
-    'text=Your video is being uploaded',
-    'text=Video uploaded',
     'text=Manage posts',
+    'text=Upload another video',
   ],
 };
 
@@ -119,7 +121,7 @@ export class TikTokAdapter extends BaseAdapter {
 
           await options.onProgress?.('Opening the TikTok upload workspace');
           capture.appendNote('Navigating to TikTok upload workspace');
-          await page.goto('https://www.tiktok.com/upload?lang=en', {
+          await page.goto('https://www.tiktok.com/tiktokstudio/upload?from=webapp', {
             waitUntil: 'domcontentloaded',
           });
 
@@ -132,35 +134,63 @@ export class TikTokAdapter extends BaseAdapter {
             await fillFirst(page, tiktokSelectors.caption, options.payload.body, 8_000);
           }
 
-          await dismissTikTokBlockingModals(page, capture);
+          await options.onProgress?.('Waiting for TikTok to enable posting');
+          const postButtonSelector = await waitForReadyTikTokPostButton(page, 45_000);
+          capture.appendNote(`TikTok post button ready through: ${postButtonSelector ?? 'not found'}`);
+          if (!postButtonSelector) {
+            return fail('TikTok never enabled the Post button after the video upload.');
+          }
 
-          await options.onProgress?.('Waiting for TikTok to process the video (up to 45s)');
+          // Set up the response listener BEFORE clicking Post to avoid a race condition
           const createResponse = page
             .waitForResponse(
               (response) =>
                 response.request().method() === 'POST' &&
-                (response.url().includes('/api/upload/') ||
-                  response.url().includes('/api/post/item_create/') ||
-                  response.url().includes('/web/project/post/create/')),
-              { timeout: 45_000 },
+                (response.url().includes('/api/post/item_create/') ||
+                  response.url().includes('/web/project/post/create/') ||
+                  response.url().includes('/api/post/publish/')),
+              { timeout: 30_000 },
             )
             .catch(() => null);
 
-          const clickedByName = await clickNamedButton(page, ['Post', 'Publish'], 45_000).catch(() => null);
-          if (!clickedByName) {
-            await clickFirstReady(page, tiktokSelectors.postButton, 45_000);
-            capture.appendNote('TikTok submit clicked by selector fallback');
-          } else {
-            capture.appendNote(`TikTok submit clicked by name: ${clickedByName}`);
+          await clickTikTokPostButton(page, postButtonSelector);
+          capture.appendNote(`TikTok submit clicked by selector: ${postButtonSelector}`);
+
+          // TikTok may show a "Continue to post?" modal while still checking the video.
+          // Click "Post now" to proceed without waiting for the check to finish.
+          await page.waitForTimeout(2000);
+          const continuedPost = await page.evaluate(() => {
+            // Find any modal/dialog with "Continue to post" text
+            const allButtons = Array.from(document.querySelectorAll('button, [role="button"]'));
+            for (const btn of allButtons) {
+              const text = btn.textContent?.trim() ?? '';
+              if (text === 'Post now' || text === 'Post Now') {
+                if (btn instanceof HTMLElement) {
+                  btn.click();
+                  return text;
+                }
+              }
+            }
+            return null;
+          });
+          if (continuedPost) {
+            capture.appendNote(`TikTok "Continue to post?" modal dismissed with: ${continuedPost}`);
           }
 
-          await options.onProgress?.('Waiting for TikTok to confirm the upload (up to 45s)');
+          await options.onProgress?.('Waiting for TikTok to confirm the post (up to 30s)');
           const [response, successMarker] = await Promise.all([
-          createResponse,
+            createResponse,
             waitForAnySelector(page, tiktokSelectors.successMarkers, 20_000),
           ]);
 
-          if (response?.ok() || successMarker) {
+          const submission = response ? await readTikTokSubmissionResult(response) : { ok: false, detail: null };
+
+          // If TikTok shows success markers (e.g. "Manage posts"), trust that even without the API response
+          if (successMarker || (!page.url().includes('/upload') && !response)) {
+            return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
+          }
+
+          if (submission.ok) {
             return this.buildSuccess(this.platform, 'Published on TikTok.', page.url());
           }
 
@@ -170,8 +200,12 @@ export class TikTokAdapter extends BaseAdapter {
             );
           }
 
+          if (response && submission.detail) {
+            return fail(submission.detail);
+          }
+
           return fail(
-            'TikTok did not confirm the upload within 45 seconds after clicking Post.',
+            'TikTok did not confirm a real post creation after clicking Post.',
           );
         }, 70_000, 'TikTok publish timed out before the upload was confirmed.', options.signal)
           .catch((error) => fail(error instanceof Error ? error.message : 'TikTok publishing failed.'));
@@ -210,10 +244,124 @@ async function dismissTikTokBlockingModals(
   page: import('playwright').Page,
   capture: { appendNote: (note: string) => void },
 ) {
-  const clickedByName = await clickNamedButton(page, ['Turn on', 'Cancel', 'Got it'], 3000).catch(() => null);
+  const clickedByName = await clickNamedButton(page, ['Got it'], 1500).catch(() => null);
   if (clickedByName) {
     capture.appendNote(`Dismissed TikTok blocking modal with: ${clickedByName}`);
   }
+}
 
-  await clickFirstReady(page, tiktokSelectors.blockingModalButtons, 1500).catch(() => null);
+async function waitForReadyTikTokPostButton(
+  page: import('playwright').Page,
+  timeout: number,
+) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    for (const selector of tiktokSelectors.postButton) {
+      const locator = page.locator(selector);
+      try {
+        const count = await locator.count();
+        for (let index = 0; index < count; index += 1) {
+          const candidate = locator.nth(index);
+          if (!(await candidate.isVisible())) {
+            continue;
+          }
+
+          const enabled = await candidate.evaluate((element) => {
+            if (!(element instanceof HTMLElement)) {
+              return false;
+            }
+
+            if (element.getAttribute('aria-disabled') === 'true') {
+              return false;
+            }
+
+            if (element.getAttribute('data-disabled') === 'true') {
+              return false;
+            }
+
+            if ('disabled' in element && (element as HTMLButtonElement).disabled) {
+              return false;
+            }
+
+            return true;
+          });
+
+          if (enabled) {
+            if (selector.includes('.Button__content')) {
+              return 'button[data-e2e="post_video_button"]';
+            }
+            return selector;
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    await page.waitForTimeout(400);
+  }
+
+  return null;
+}
+
+async function readTikTokSubmissionResult(response: import('playwright').Response) {
+  try {
+    const payload = await response.json();
+    const success =
+      payload?.statusCode === 0 ||
+      payload?.status_code === 0 ||
+      payload?.code === 0 ||
+      payload?.success === true ||
+      payload?.status === 'success' ||
+      payload?.data?.status === 'success';
+
+    if (success) {
+      return { ok: true, detail: null as string | null };
+    }
+
+    const detail =
+      payload?.statusMsg ??
+      payload?.status_msg ??
+      payload?.message ??
+      payload?.msg ??
+      'TikTok returned a post response, but it did not indicate success.';
+
+    return { ok: false, detail };
+  } catch {
+    return {
+      ok: response.ok(),
+      detail: response.ok() ? null : `TikTok rejected the post with HTTP ${response.status()}.`,
+    };
+  }
+}
+
+async function clickTikTokPostButton(
+  page: import('playwright').Page,
+  selector: string,
+) {
+  const button =
+    selector === 'button[data-e2e="post_video_button"]'
+      ? page.locator('button[data-e2e="post_video_button"]').first()
+      : page.locator(selector).first();
+
+  await button.click({ timeout: 2_000 }).catch(async () => {
+    await page.evaluate(() => {
+      const cancelModal = Array.from(document.querySelectorAll('div[role="dialog"]')).find((dialog) =>
+        dialog.textContent?.includes('Sure you want to cancel your upload?'),
+      );
+      if (!cancelModal) {
+        return;
+      }
+
+      const keepEditing = Array.from(cancelModal.querySelectorAll('button')).find((button) =>
+        button.textContent?.trim() === 'No',
+      );
+      if (keepEditing instanceof HTMLElement) {
+        keepEditing.click();
+      }
+    });
+
+    await page.locator('button[data-e2e="post_video_button"]').first().click({ timeout: 2_000, force: true });
+  });
 }

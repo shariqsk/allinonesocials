@@ -18,11 +18,11 @@ const instagramSelectors = {
     'svg[aria-label="Home"]',
   ],
   createButton: [
+    'a:has(svg[aria-label="New post"])',
+    'a[role="link"]:has(svg[aria-label="New post"])',
+    '[role="button"]:has(svg[aria-label="New post"])',
     'a[href="/create/select/"]',
     'a[href*="/create/"]',
-    '[aria-label="New post"]',
-    'svg[aria-label="New post"]',
-    '[role="button"][aria-label="New post"]',
   ],
   createMenuEntry: [
     'text="Post"',
@@ -38,6 +38,9 @@ const instagramSelectors = {
   ],
   fileInput: ['input[type="file"]', 'input[accept*="image"]', 'input[accept*="video"]', 'input[multiple]'],
   nextButton: [
+    'button[aria-label="Next"]',
+    '[role="button"][aria-label="Next"]',
+    'svg[aria-label="Next"]',
     'button:has-text("Next")',
     'button:has-text("Continue")',
     '[role="button"]:has-text("Next")',
@@ -47,6 +50,8 @@ const instagramSelectors = {
   ],
   caption: ['textarea[aria-label="Write a caption..."]', 'textarea'],
   shareButton: [
+    'button[aria-label="Share"]',
+    '[role="button"][aria-label="Share"]',
     'button:has-text("Share")',
     'button:has-text("Post")',
     '[role="button"]:has-text("Share")',
@@ -119,9 +124,10 @@ export class InstagramAdapter extends BaseAdapter {
         const capture = await this.startDebugCapture(context, page, options.secret.profileDir, this.platform);
         const fail = (message: string) => this.buildFailureWithArtifacts(this.platform, message, page, capture);
 
+        const hasVideo = options.payload.assets.some((asset) => asset.mediaKind === 'video');
+
         const result = await this.withOperationTimeout(async () => {
           const files = options.payload.assets.map((asset) => asset.path);
-          const hasVideo = options.payload.assets.some((asset) => asset.mediaKind === 'video');
           const processingTimeout = hasVideo ? 60_000 : 25_000;
           const shareTimeout = hasVideo ? 30_000 : 15_000;
 
@@ -149,14 +155,14 @@ export class InstagramAdapter extends BaseAdapter {
 
           await options.onProgress?.(
             hasVideo
-              ? 'Waiting for Instagram to process the video (up to 60s)'
+              ? 'Waiting for Instagram to process the video (up to 2 min)'
               : 'Waiting for Instagram to finish processing the media',
           );
           const stage = await waitForInstagramStage(page, processingTimeout);
           if (stage === null) {
             throw new Error(
               hasVideo
-                ? 'Instagram did not reach the next editing step within 60 seconds after the video upload.'
+                ? 'Instagram did not reach the next editing step within 2 minutes after the video upload.'
                 : 'Instagram did not reach the next editing step after the upload.',
             );
           }
@@ -234,67 +240,69 @@ async function trySetInstagramFiles(page: import('playwright').Page, files: stri
 }
 
 async function openInstagramUploadFlow(page: import('playwright').Page, files: string[]) {
-  await page.goto('https://www.instagram.com/create/select/', {
-    waitUntil: 'domcontentloaded',
-    timeout: 10_000,
-  }).catch(() => null);
-
-  const directInput = await trySetInstagramFiles(page, files);
-  if (directInput) {
-    return directInput;
-  }
-
   await tryDismissInstagramInterruptions(page);
 
-  const createUrlChooser = page.waitForEvent('filechooser', { timeout: 4000 }).catch(() => null);
-  const createUrlChooserResult = await resolveInstagramChooser(createUrlChooser, files);
-  if (createUrlChooserResult) {
-    return createUrlChooserResult;
+  // 1. Click the sidebar Create button by targeting the SVG with aria-label="New post".
+  //    Use Playwright's real mouse click (not DOM .click()) so React handlers fire.
+  const chooserPromise = page.waitForEvent('filechooser', { timeout: 10_000 }).catch(() => null);
+
+  let clickedCreate = false;
+  try {
+    const svg = page.locator('svg[aria-label="New post"]').first();
+    await svg.waitFor({ state: 'attached', timeout: 8000 });
+    await svg.click({ timeout: 3000, force: true });
+    clickedCreate = true;
+  } catch {
+    // Fallback: try clicking by text "Create" in the sidebar
+    try {
+      await page.locator('span:has-text("Create")').first().click({ timeout: 3000, force: true });
+      clickedCreate = true;
+    } catch {
+      clickedCreate = false;
+    }
   }
 
-  const directChooserPromise = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
-  const createOpened =
-    (await tryClickFirst(page, instagramSelectors.createButton, 8000)) ??
-    (await tryClickNamedButton(page, ['Create', 'New post'], 8000));
-
-  if (!createOpened) {
+  if (!clickedCreate) {
     return null;
   }
 
-  const directCreateSurface = await waitForInstagramCreateSurface(page, 5000);
-  if (directCreateSurface) {
-    if (directCreateSurface === 'url') {
-      return trySetInstagramFiles(page, files);
-    }
-    return directCreateSurface;
+  // 2. Wait for the create dialog to appear — it either opens a file chooser
+  //    or shows a dialog with a file input or a Post/Reel menu.
+  await page.waitForTimeout(1500);
+
+  // Try the file chooser first (Instagram may open a native dialog directly)
+  const fileInput = await trySetInstagramFiles(page, files);
+  if (fileInput) {
+    return fileInput;
   }
 
-  const directChooser = await resolveInstagramChooser(directChooserPromise, files);
-  if (directChooser) {
-    return directChooser;
+  const chooser = await resolveInstagramChooser(chooserPromise, files);
+  if (chooser) {
+    return chooser;
   }
 
-  const chooserAfterMenuPromise = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
-  const pickedCreateType =
-    (await tryClickInstagramAction(page, ['Post'], 5000)) ??
-    (await tryClickFirst(page, instagramSelectors.createMenuEntry, 5000)) ??
-    (await tryClickInstagramAction(page, ['Reel'], 5000));
+  // 3. A Post/Reel menu may have appeared — pick Post.
+  const menuChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null);
+  const pickedType =
+    (await tryClickInstagramAction(page, ['Post'], 3000)) ??
+    (await tryClickFirst(page, instagramSelectors.createMenuEntry, 3000)) ??
+    (await tryClickInstagramAction(page, ['Reel'], 3000));
 
-  if (pickedCreateType) {
-    const createSurface = await waitForInstagramCreateSurface(page, 5000);
-    if (createSurface) {
-      if (createSurface === 'url') {
-        return trySetInstagramFiles(page, files);
-      }
-      return createSurface;
+  if (pickedType) {
+    await page.waitForTimeout(1000);
+
+    const inputAfterMenu = await trySetInstagramFiles(page, files);
+    if (inputAfterMenu) {
+      return inputAfterMenu;
     }
 
-    const chooserAfterMenu = await resolveInstagramChooser(chooserAfterMenuPromise, files);
+    const chooserAfterMenu = await resolveInstagramChooser(menuChooserPromise, files);
     if (chooserAfterMenu) {
       return chooserAfterMenu;
     }
   }
 
+  // 4. Last resort — look for any file input on the page.
   return trySetInstagramFiles(page, files);
 }
 
@@ -318,13 +326,9 @@ async function waitForInstagramCreateSurface(
   const deadline = Date.now() + timeout;
 
   while (Date.now() < deadline) {
-    if (page.url().includes('/create/')) {
-      return 'url';
-    }
-
     const inputSelector = await findVisibleInstagramInput(page);
     if (inputSelector) {
-      return inputSelector;
+      return 'file-input';
     }
 
     await page.waitForTimeout(250);
@@ -357,19 +361,27 @@ async function tryClickInstagramAction(
   labels: string[],
   timeout: number,
 ) {
-  const clickedByRole = await tryClickNamedButton(page, labels, timeout);
-  if (clickedByRole) {
-    return clickedByRole;
+  const clickedByAccessibleName = await tryClickInstagramAccessibleAction(page, labels, timeout);
+  if (clickedByAccessibleName) {
+    return clickedByAccessibleName;
   }
 
   const selectors = labels.flatMap((label) => [
+    `button[aria-label="${label}"]`,
+    `[role="button"][aria-label="${label}"]`,
+    `svg[aria-label="${label}"]`,
     `button:has-text("${label}")`,
     `[role="button"]:has-text("${label}")`,
     `[role="menuitem"]:has-text("${label}")`,
     `a:has-text("${label}")`,
   ]);
 
-  return tryClickFirst(page, selectors, timeout);
+  const clickedBySelector = await tryClickAnyVisibleInstagramSelector(page, selectors, timeout);
+  if (clickedBySelector) {
+    return clickedBySelector;
+  }
+
+  return tryClickNamedButton(page, labels, timeout);
 }
 
 async function waitForInstagramStage(
@@ -379,11 +391,17 @@ async function waitForInstagramStage(
   const deadline = Date.now() + timeout;
 
   while (Date.now() < deadline) {
-    if (await hasVisibleSelector(page, [...instagramSelectors.caption, ...instagramSelectors.shareButton])) {
+    if (
+      (await hasVisibleSelector(page, instagramSelectors.caption)) ||
+      (await hasInstagramAccessibleAction(page, ['Share', 'Post']))
+    ) {
       return 'compose';
     }
 
-    if (await hasVisibleSelector(page, instagramSelectors.nextButton)) {
+    if (
+      (await hasInstagramAccessibleAction(page, ['Next', 'Continue'])) ||
+      (await hasVisibleSelector(page, instagramSelectors.nextButton))
+    ) {
       return 'advance';
     }
 
@@ -394,16 +412,184 @@ async function waitForInstagramStage(
 }
 
 async function hasVisibleSelector(page: import('playwright').Page, selectors: string[]) {
+  return (await findVisibleSelector(page, selectors)) !== null;
+}
+
+async function findVisibleSelector(page: import('playwright').Page, selectors: string[]) {
   for (const selector of selectors) {
-    const locator = page.locator(selector).first();
+    const locator = page.locator(selector);
     try {
-      if ((await locator.count()) > 0 && (await locator.isVisible())) {
-        return true;
+      const count = await locator.count();
+      for (let index = 0; index < count; index += 1) {
+        if (await locator.nth(index).isVisible()) {
+          return selector;
+        }
       }
     } catch {
       continue;
     }
   }
 
-  return false;
+  return null;
+}
+
+async function tryClickAnyVisibleInstagramSelector(
+  page: import('playwright').Page,
+  selectors: string[],
+  timeout: number,
+) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    for (const selector of selectors) {
+      const locator = page.locator(selector);
+      try {
+        const count = await locator.count();
+        for (let index = 0; index < count; index += 1) {
+          const candidate = locator.nth(index);
+          if (!(await candidate.isVisible())) {
+            continue;
+          }
+
+          const enabled = await candidate.evaluate((element) => {
+            if (!(element instanceof HTMLElement)) {
+              return false;
+            }
+
+            if (element.getAttribute('aria-disabled') === 'true') {
+              return false;
+            }
+
+            if ('disabled' in element && (element as HTMLButtonElement).disabled) {
+              return false;
+            }
+
+            return true;
+          });
+
+          if (!enabled) {
+            continue;
+          }
+
+          await candidate.click({ timeout: 1500 });
+          return selector;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    await page.waitForTimeout(300);
+  }
+
+  return null;
+}
+
+async function hasInstagramAccessibleAction(
+  page: import('playwright').Page,
+  labels: string[],
+) {
+  return (await findInstagramAccessibleAction(page, labels)) !== null;
+}
+
+async function tryClickInstagramAccessibleAction(
+  page: import('playwright').Page,
+  labels: string[],
+  timeout: number,
+) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    const action = await findInstagramAccessibleAction(page, labels);
+    if (action) {
+      await action.locator.click({ timeout: 1500 });
+      return `${action.role}:${action.label}`;
+    }
+
+    await page.waitForTimeout(300);
+  }
+
+  return null;
+}
+
+async function findInstagramAccessibleAction(
+  page: import('playwright').Page,
+  labels: string[],
+) {
+  const roles: Array<'button' | 'link' | 'menuitem'> = ['button', 'link', 'menuitem'];
+
+  for (const label of labels) {
+    const name = new RegExp(`^${escapeRegex(label)}$`, 'i');
+    for (const role of roles) {
+      const locator = page.getByRole(role, { name });
+      try {
+        const count = await locator.count();
+        for (let index = 0; index < count; index += 1) {
+          const candidate = locator.nth(index);
+          if (!(await candidate.isVisible())) {
+            continue;
+          }
+
+          const enabled = await candidate.evaluate((element) => {
+            if (!(element instanceof HTMLElement)) {
+              return false;
+            }
+
+            if (element.getAttribute('aria-disabled') === 'true') {
+              return false;
+            }
+
+            if ('disabled' in element && (element as HTMLButtonElement).disabled) {
+              return false;
+            }
+
+            return true;
+          });
+
+          if (enabled) {
+            return { locator: candidate, label, role };
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function tryClickInstagramAccessibleLink(
+  page: import('playwright').Page,
+  labels: string[],
+  timeout: number,
+) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    for (const label of labels) {
+      const name = new RegExp(`^${escapeRegex(label)}$`, 'i');
+      const locator = page.getByRole('link', { name });
+      try {
+        const count = await locator.count();
+        for (let index = 0; index < count; index += 1) {
+          const candidate = locator.nth(index);
+          if (await candidate.isVisible()) {
+            await candidate.click({ timeout: 1500 });
+            return `link:${label}`;
+          }
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    await page.waitForTimeout(300);
+  }
+
+  return null;
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
