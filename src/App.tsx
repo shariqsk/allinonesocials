@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import {
+  LuCircleUserRound,
+  LuClock3,
+  LuHistory,
+  LuLayoutDashboard,
+  LuMoonStar,
+  LuPencilLine,
+  LuRefreshCw,
+  LuSettings2,
+  LuSunMedium,
+  LuTrash2,
+  LuTriangleAlert,
+} from 'react-icons/lu';
+import { FaFacebookF, FaInstagram, FaTiktok, FaXTwitter } from 'react-icons/fa6';
 import { buildTargetStates, platformDefinitions, validateComposer } from './shared/content';
 import type {
   AppSnapshot,
@@ -1196,32 +1210,13 @@ function PlatformBadge({
 function PlatformIcon({ platform }: { platform: PlatformId }) {
   switch (platform) {
     case 'x':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 4 20 20" />
-          <path d="M20 4 4 20" />
-        </svg>
-      );
+      return <FaXTwitter aria-hidden="true" />;
     case 'facebook':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M13.2 20v-6.2h2.8l.4-3.1h-3.2V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.4c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.1H7v3.1h2.8V20h3.4Z" />
-        </svg>
-      );
+      return <FaFacebookF aria-hidden="true" />;
     case 'instagram':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="4.5" y="4.5" width="15" height="15" rx="4.5" />
-          <circle cx="12" cy="12" r="3.5" />
-          <circle cx="16.8" cy="7.4" r="0.8" fill="currentColor" stroke="none" />
-        </svg>
-      );
+      return <FaInstagram aria-hidden="true" />;
     case 'tiktok':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M14 5.5c.7 1.9 2.2 3.3 4.2 3.8v2.7a7 7 0 0 1-4.2-1.3v4.8a4.8 4.8 0 1 1-4.8-4.8c.4 0 .8 0 1.2.1v2.7a2.3 2.3 0 1 0 1.1 2V4.2H14v1.3Z" />
-        </svg>
-      );
+      return <FaTiktok aria-hidden="true" />;
     default:
       return null;
   }
@@ -1241,114 +1236,29 @@ function readStoredTheme(): ThemeMode {
 }
 
 function UiIcon({ name }: { name: IconName }) {
-  const commonProps = {
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.8,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-
   switch (name) {
     case 'dashboard':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="3" y="3" width="8" height="8" rx="2" {...commonProps} />
-          <rect x="13" y="3" width="8" height="5" rx="2" {...commonProps} />
-          <rect x="13" y="10" width="8" height="11" rx="2" {...commonProps} />
-          <rect x="3" y="13" width="8" height="8" rx="2" {...commonProps} />
-        </svg>
-      );
+      return <LuLayoutDashboard aria-hidden="true" />;
     case 'accounts':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M16 19a4 4 0 0 0-8 0" {...commonProps} />
-          <circle cx="12" cy="9" r="4" {...commonProps} />
-          <path d="M5 19h14" {...commonProps} />
-        </svg>
-      );
+      return <LuCircleUserRound aria-hidden="true" />;
     case 'composer':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z" {...commonProps} />
-          <path d="m13.5 6.5 4 4" {...commonProps} />
-        </svg>
-      );
+      return <LuPencilLine aria-hidden="true" />;
     case 'scheduled':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="13" r="8" {...commonProps} />
-          <path d="M12 9v4l3 2" {...commonProps} />
-          <path d="M8 3h8" {...commonProps} />
-        </svg>
-      );
+      return <LuClock3 aria-hidden="true" />;
     case 'history':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 12a9 9 0 1 0 3-6.7" {...commonProps} />
-          <path d="M3 4v5h5" {...commonProps} />
-          <path d="M12 7v5l3 2" {...commonProps} />
-        </svg>
-      );
+      return <LuHistory aria-hidden="true" />;
     case 'settings':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3v4" {...commonProps} />
-          <path d="M12 17v4" {...commonProps} />
-          <path d="M4.9 6.3l2.8 2.1" {...commonProps} />
-          <path d="m16.3 15.6 2.8 2.1" {...commonProps} />
-          <path d="M3 12h4" {...commonProps} />
-          <path d="M17 12h4" {...commonProps} />
-          <path d="m4.9 17.7 2.8-2.1" {...commonProps} />
-          <path d="m16.3 8.4 2.8-2.1" {...commonProps} />
-          <circle cx="12" cy="12" r="3" {...commonProps} />
-        </svg>
-      );
+      return <LuSettings2 aria-hidden="true" />;
     case 'sun':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="4" {...commonProps} />
-          <path d="M12 2v3" {...commonProps} />
-          <path d="M12 19v3" {...commonProps} />
-          <path d="m4.9 4.9 2.1 2.1" {...commonProps} />
-          <path d="m17 17 2.1 2.1" {...commonProps} />
-          <path d="M2 12h3" {...commonProps} />
-          <path d="M19 12h3" {...commonProps} />
-          <path d="m4.9 19.1 2.1-2.1" {...commonProps} />
-          <path d="m17 7 2.1-2.1" {...commonProps} />
-        </svg>
-      );
+      return <LuSunMedium aria-hidden="true" />;
     case 'moon':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z" {...commonProps} />
-        </svg>
-      );
+      return <LuMoonStar aria-hidden="true" />;
     case 'refresh':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M20 6v6h-6" {...commonProps} />
-          <path d="M20 12a8 8 0 1 1-2.3-5.7L20 8" {...commonProps} />
-        </svg>
-      );
+      return <LuRefreshCw aria-hidden="true" />;
     case 'trash':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 7h16" {...commonProps} />
-          <path d="M10 11v6" {...commonProps} />
-          <path d="M14 11v6" {...commonProps} />
-          <path d="M6 7l1 13h10l1-13" {...commonProps} />
-          <path d="M9 4h6l1 3H8l1-3Z" {...commonProps} />
-        </svg>
-      );
+      return <LuTrash2 aria-hidden="true" />;
     case 'alert':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m12 3 9 16H3l9-16Z" {...commonProps} />
-          <path d="M12 9v4" {...commonProps} />
-          <path d="M12 17h.01" {...commonProps} />
-        </svg>
-      );
+      return <LuTriangleAlert aria-hidden="true" />;
     default:
       return null;
   }

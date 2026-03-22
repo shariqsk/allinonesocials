@@ -377,6 +377,7 @@ a {
 .platform-badge svg {
   width: 18px;
   height: 18px;
+  flex: 0 0 auto;
 }
 
 .nav-button-body {
@@ -965,11 +966,7 @@ textarea {
 }
 
 .platform-badge svg {
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
+  display: block;
 }
 
 .platform-badge-x,
