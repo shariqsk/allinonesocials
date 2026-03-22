@@ -3,9 +3,9 @@ import dayjs from 'dayjs';
 import { buildTargetStates, platformDefinitions, validateComposer } from './shared/content';
 import type {
   AppSnapshot,
+  AccountStatus,
   ComposerInput,
   ImportedAsset,
-  AccountStatus,
   PlatformAccount,
   PlatformId,
   PublishJob,
@@ -13,14 +13,27 @@ import type {
 
 type View = 'dashboard' | 'accounts' | 'composer' | 'scheduled' | 'history' | 'settings';
 type PublishMode = 'now' | 'schedule';
+type ThemeMode = 'light' | 'dark';
+type IconName =
+  | 'dashboard'
+  | 'accounts'
+  | 'composer'
+  | 'scheduled'
+  | 'history'
+  | 'settings'
+  | 'sun'
+  | 'moon'
+  | 'refresh'
+  | 'trash'
+  | 'alert';
 
-const navigation: { id: View; label: string }[] = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'accounts', label: 'Accounts' },
-  { id: 'composer', label: 'Composer' },
-  { id: 'scheduled', label: 'Scheduled' },
-  { id: 'history', label: 'History' },
-  { id: 'settings', label: 'Settings' },
+const navigation: { id: View; label: string; caption: string; icon: IconName }[] = [
+  { id: 'dashboard', label: 'Dashboard', caption: 'At-a-glance workspace', icon: 'dashboard' },
+  { id: 'accounts', label: 'Accounts', caption: 'Session control', icon: 'accounts' },
+  { id: 'composer', label: 'Composer', caption: 'Write once, adapt everywhere', icon: 'composer' },
+  { id: 'scheduled', label: 'Scheduled', caption: 'Queued while open', icon: 'scheduled' },
+  { id: 'history', label: 'History', caption: 'What actually happened', icon: 'history' },
+  { id: 'settings', label: 'Settings', caption: 'Runtime notes', icon: 'settings' },
 ];
 
 const defaultSnapshot: AppSnapshot = {
@@ -39,6 +52,7 @@ const defaultSnapshot: AppSnapshot = {
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
   const [view, setView] = useState<View>('dashboard');
   const [snapshot, setSnapshot] = useState<AppSnapshot>(defaultSnapshot);
   const [loading, setLoading] = useState(true);
@@ -89,6 +103,15 @@ export default function App() {
         .map(([platform]) => platform),
     [primaryAccounts],
   );
+  const activeNavigation = useMemo(
+    () => navigation.find((item) => item.id === view) ?? navigation[0],
+    [view],
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('socialdesk:theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const allowed = connectedPlatformIds.filter((platform) => platformDefinitions[platform].enabled);
@@ -258,7 +281,12 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
+      <div className="app-background" aria-hidden="true">
+        <span className="app-glow app-glow-one" />
+        <span className="app-glow app-glow-two" />
+        <span className="app-grid" />
+      </div>
       {isPublishing ? (
         <PostingOverlay
           step={postingSteps[postingStep]}
@@ -273,9 +301,10 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand-block">
           <span className="brand-mark">SD</span>
-          <div>
+          <div className="brand-copy">
             <p className="eyebrow">Local-first publishing</p>
             <h1>Social Desk</h1>
+            <span>Editorial control for cross-posting</span>
           </div>
         </div>
 
@@ -287,7 +316,13 @@ export default function App() {
               className={view === item.id ? 'nav-button nav-button-active' : 'nav-button'}
               onClick={() => setView(item.id)}
             >
-              {item.label}
+              <span className="nav-button-icon">
+                <UiIcon name={item.icon} />
+              </span>
+              <span className="nav-button-body">
+                <strong className="nav-button-title">{item.label}</strong>
+                <small className="nav-button-copy">{item.caption}</small>
+              </span>
             </button>
           ))}
         </nav>
@@ -303,15 +338,31 @@ export default function App() {
 
       <main className="main-panel">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Cross-post manager</p>
-            <h2>{navigation.find((item) => item.id === view)?.label}</h2>
+          <div className="topbar-copy">
+            <p className="eyebrow">{activeNavigation.caption}</p>
+            <h2>{activeNavigation.label}</h2>
           </div>
-          <div className="topbar-meta">
-            <span>Updated {formatTimestamp(snapshot.lastUpdatedAt)}</span>
-            <button type="button" className="ghost-button" onClick={() => void loadSnapshot()}>
-              Refresh
-            </button>
+          <div className="topbar-controls">
+            <div className="topbar-status">
+              <span className="topbar-status-label">Updated {formatTimestamp(snapshot.lastUpdatedAt)}</span>
+              <span className="topbar-status-value">
+                {snapshot.stats.connectedAccounts} connected · {snapshot.history.length} history items
+              </span>
+            </div>
+            <div className="topbar-actions">
+              <button
+                type="button"
+                className="ghost-button theme-button"
+                onClick={() => setTheme((current) => (current === 'light' ? 'dark' : 'light'))}
+              >
+                <UiIcon name={theme === 'light' ? 'moon' : 'sun'} />
+                {theme === 'light' ? 'Dark mode' : 'Light mode'}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => void loadSnapshot()}>
+                <UiIcon name="refresh" />
+                Refresh
+              </button>
+            </div>
           </div>
         </header>
 
@@ -369,22 +420,42 @@ function DashboardView({ snapshot }: { snapshot: AppSnapshot }) {
   return (
     <section className="view-grid">
       <div className="stat-card">
-        <p className="eyebrow">Accounts</p>
+        <div className="stat-card-head">
+          <span className="stat-card-icon">
+            <UiIcon name="accounts" />
+          </span>
+          <p className="eyebrow">Accounts</p>
+        </div>
         <strong>{snapshot.stats.connectedAccounts}</strong>
         <span>connected sessions</span>
       </div>
       <div className="stat-card">
-        <p className="eyebrow">Scheduled</p>
+        <div className="stat-card-head">
+          <span className="stat-card-icon">
+            <UiIcon name="scheduled" />
+          </span>
+          <p className="eyebrow">Scheduled</p>
+        </div>
         <strong>{snapshot.stats.scheduledCount}</strong>
         <span>jobs waiting while the app stays open</span>
       </div>
       <div className="stat-card">
-        <p className="eyebrow">Published</p>
+        <div className="stat-card-head">
+          <span className="stat-card-icon">
+            <UiIcon name="composer" />
+          </span>
+          <p className="eyebrow">Published</p>
+        </div>
         <strong>{snapshot.stats.publishedCount}</strong>
         <span>completed jobs</span>
       </div>
       <div className="stat-card">
-        <p className="eyebrow">Attention</p>
+        <div className="stat-card-head">
+          <span className="stat-card-icon">
+            <UiIcon name="alert" />
+          </span>
+          <p className="eyebrow">Attention</p>
+        </div>
         <strong>{snapshot.stats.failedCount}</strong>
         <span>failed or partial jobs</span>
       </div>
@@ -401,11 +472,14 @@ function DashboardView({ snapshot }: { snapshot: AppSnapshot }) {
             ).length;
             return (
               <article className="platform-chip" key={platform.id}>
-                <span>{platform.badge}</span>
-                <div>
-                  <strong>{platform.displayName}</strong>
-                  <p>{connected > 0 ? `${connected} active session(s)` : platform.description}</p>
+                <div className="platform-chip-leading">
+                  <PlatformBadge platform={platform.id} />
+                  <div>
+                    <strong>{platform.displayName}</strong>
+                    <p>{connected > 0 ? `${connected} active session(s)` : platform.description}</p>
+                  </div>
                 </div>
+                <span className="platform-chip-meta">{platform.badge}</span>
               </article>
             );
           })}
@@ -495,7 +569,10 @@ function PostingOverlay({
 
             return (
               <div className={`posting-platform posting-platform-${state}`} key={platform}>
-                <strong>{platformDefinitions[platform].displayName}</strong>
+                <div className="posting-platform-head">
+                  <PlatformBadge platform={platform} compact />
+                  <strong>{platformDefinitions[platform].displayName}</strong>
+                </div>
                 <span>
                   {result
                     ? result.status === 'success'
@@ -547,9 +624,12 @@ function AccountsView({
           return (
             <article className="panel" key={platform.id}>
               <div className="panel-header">
-                <div>
-                  <p className="eyebrow">{platform.badge}</p>
-                  <h3>{platform.displayName}</h3>
+                <div className="platform-header">
+                  <PlatformBadge platform={platform.id} />
+                  <div>
+                    <p className="eyebrow">Platform</p>
+                    <h3>{platform.displayName}</h3>
+                  </div>
                 </div>
                 <div className="row-actions">
                   {account ? <StatusPill status={account.status} /> : null}
@@ -659,119 +739,139 @@ function ComposerView(props: ComposerViewProps) {
           <h3>Write Once</h3>
           <span>Text, images, or a single video</span>
         </div>
-
-        <div className="composer-mode-row">
-          <button
-            type="button"
-            className={publishMode === 'now' ? 'mode-button mode-button-active' : 'mode-button'}
-            onClick={() => onPublishModeChange('now')}
-          >
-            Post now
-          </button>
-          <button
-            type="button"
-            className={publishMode === 'schedule' ? 'mode-button mode-button-active' : 'mode-button'}
-            onClick={() => onPublishModeChange('schedule')}
-          >
-            Schedule
-          </button>
-        </div>
-
-        <div className="inline-note">
-          {publishMode === 'now'
-            ? 'Post immediately to the selected platforms.'
-            : 'Queue this post for later while the app stays open.'}
-        </div>
-
-        <label className="field-block">
-          <span>Post text</span>
-          <textarea
-            value={body}
-            onChange={(event) => onBodyChange(event.target.value)}
-            placeholder="Draft the message once, then let each platform preview adapt around it."
-          />
-        </label>
-
-        <label className="field-block">
-          <span>Media</span>
-          <div className="asset-picker-row">
-            <button type="button" className="ghost-button" onClick={onSelectAssets}>
-              Choose media
-            </button>
-            <span className="muted-copy">
-              Uses the native file picker so local file paths persist correctly.
-            </span>
-          </div>
-        </label>
-
-        <div className="asset-list">
-          {assets.map((asset) => (
-            <div className="asset-chip" key={asset.id}>
-              <div>
-                <strong>{asset.name}</strong>
-                <span>
-                  {asset.mediaKind === 'video' ? 'Video' : 'Image'} · {Math.round(asset.size / 1024)} KB
-                </span>
-              </div>
+        <div className="composer-stack">
+          <section className="composer-section">
+            <div className="composer-section-head">
+              <strong>Mode</strong>
+              <span>{publishMode === 'now' ? 'Immediate publish' : 'Queue for later'}</span>
+            </div>
+            <div className="composer-mode-row">
               <button
                 type="button"
-                className="ghost-button ghost-button-tight"
-                onClick={() => onRemoveAsset(asset.id)}
+                className={publishMode === 'now' ? 'mode-button mode-button-active' : 'mode-button'}
+                onClick={() => onPublishModeChange('now')}
               >
-                Remove
+                Post now
+              </button>
+              <button
+                type="button"
+                className={publishMode === 'schedule' ? 'mode-button mode-button-active' : 'mode-button'}
+                onClick={() => onPublishModeChange('schedule')}
+              >
+                Schedule
               </button>
             </div>
-          ))}
-          {assets.length === 0 ? <EmptyState text="No media added yet." compact /> : null}
-        </div>
+            <div className="inline-note">
+              {publishMode === 'now'
+                ? 'Post immediately to the selected platforms.'
+                : 'Queue this post for later while the app stays open.'}
+            </div>
+            {publishMode === 'schedule' ? (
+              <div className="field-row">
+                <label className="field-block">
+                  <span>Schedule for</span>
+                  <input
+                    type="datetime-local"
+                    value={scheduledFor}
+                    onChange={(event) => onScheduledForChange(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </section>
 
-        <div className="platform-selector">
-          {Object.values(platformDefinitions).map((platform) => (
-            <label className="platform-toggle" key={platform.id}>
-              <input
-                type="checkbox"
-                checked={selectedPlatforms.includes(platform.id)}
-                onChange={() => onTogglePlatform(platform.id)}
-                disabled={!connectedPlatforms.includes(platform.id)}
-              />
-              <span>{platform.displayName}</span>
-            </label>
-          ))}
-        </div>
-        {connectedPlatforms.length === 0 ? (
-          <div className="notice notice-error">
-            Connect at least one platform in Accounts before posting from the composer.
-          </div>
-        ) : null}
-
-        {publishMode === 'schedule' ? (
-          <div className="field-row">
+          <section className="composer-section">
+            <div className="composer-section-head">
+              <strong>Message</strong>
+              <span>Write once and adapt per platform</span>
+            </div>
             <label className="field-block">
-              <span>Schedule for</span>
-              <input
-                type="datetime-local"
-                value={scheduledFor}
-                onChange={(event) => onScheduledForChange(event.target.value)}
+              <span>Post text</span>
+              <textarea
+                value={body}
+                onChange={(event) => onBodyChange(event.target.value)}
+                placeholder="Draft the message once, then let each platform preview adapt around it."
               />
             </label>
+          </section>
+
+          <section className="composer-section">
+            <div className="composer-section-head">
+              <strong>Media</strong>
+              <span>Images or a single video</span>
+            </div>
+            <div className="asset-picker-row">
+              <button type="button" className="ghost-button" onClick={onSelectAssets}>
+                Choose media
+              </button>
+              <span className="muted-copy">
+                Uses the native file picker so local file paths persist correctly.
+              </span>
+            </div>
+            <div className="asset-list">
+              {assets.map((asset) => (
+                <div className="asset-chip" key={asset.id}>
+                  <div>
+                    <strong>{asset.name}</strong>
+                    <span>
+                      {asset.mediaKind === 'video' ? 'Video' : 'Image'} · {Math.round(asset.size / 1024)} KB
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button ghost-button-tight"
+                    onClick={() => onRemoveAsset(asset.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              {assets.length === 0 ? <EmptyState text="No media added yet." compact /> : null}
+            </div>
+          </section>
+
+          <section className="composer-section">
+            <div className="composer-section-head">
+              <strong>Destinations</strong>
+              <span>Only connected platforms are selectable</span>
+            </div>
+            <div className="platform-selector composer-platform-grid">
+              {Object.values(platformDefinitions).map((platform) => (
+                <label className="platform-toggle" key={platform.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPlatforms.includes(platform.id)}
+                    onChange={() => onTogglePlatform(platform.id)}
+                    disabled={!connectedPlatforms.includes(platform.id)}
+                  />
+                  <PlatformBadge platform={platform.id} compact />
+                  <span className="platform-toggle-copy">{platform.displayName}</span>
+                </label>
+              ))}
+            </div>
+            {connectedPlatforms.length === 0 ? (
+              <div className="notice notice-error">
+                Connect at least one platform in Accounts before posting from the composer.
+              </div>
+            ) : null}
+          </section>
+
+          {validationMessage ? <div className="notice notice-error">{validationMessage}</div> : null}
+
+          <div className="action-row composer-action-row">
+            <button type="button" className="ghost-button" onClick={onSaveDraft}>
+              Save draft
+            </button>
+            {publishMode === 'schedule' ? (
+              <button type="button" className="primary-button" onClick={onSchedulePost}>
+                Schedule post
+              </button>
+            ) : (
+              <button type="button" className="primary-button" onClick={onPublishNow}>
+                Post now
+              </button>
+            )}
           </div>
-        ) : null}
-
-        {validationMessage ? <div className="notice notice-error">{validationMessage}</div> : null}
-
-        <div className="action-row">
-          <button type="button" className="ghost-button" onClick={onSaveDraft}>
-            Save draft
-          </button>
-          {publishMode === 'schedule' ? (
-            <button type="button" className="primary-button" onClick={onSchedulePost}>
-              Schedule post
-            </button>
-          ) : (
-            <button type="button" className="primary-button" onClick={onPublishNow}>
-              Post now
-            </button>
-          )}
         </div>
       </div>
 
@@ -785,9 +885,12 @@ function ComposerView(props: ComposerViewProps) {
           {targetStates.map((target) => (
             <article className="preview-card" key={target.platform}>
               <div className="panel-header">
-                <div>
-                  <p className="eyebrow">{platformDefinitions[target.platform].badge}</p>
-                  <h3>{target.displayName}</h3>
+                <div className="platform-header">
+                  <PlatformBadge platform={target.platform} />
+                  <div>
+                    <p className="eyebrow">Preview</p>
+                    <h3>{target.displayName}</h3>
+                  </div>
                 </div>
                 <StatusPill
                   status={
@@ -807,14 +910,21 @@ function ComposerView(props: ComposerViewProps) {
                 />
               </div>
               <p>{body || 'Your draft text will preview here.'}</p>
-              <div className="meta-grid">
-                <span>{target.assetCount} images</span>
-                <span>{target.videoCount > 0 ? `${target.videoCount} video` : `${target.imageCount} images`}</span>
-                <span>
-                  {target.remainingCharacters === null
-                    ? 'No shared limit'
-                    : `${target.remainingCharacters} chars left`}
-                </span>
+              <div className="preview-stat-grid">
+                <div className="preview-stat">
+                  <strong>{target.assetCount}</strong>
+                  <span>Assets</span>
+                </div>
+                <div className="preview-stat">
+                  <strong>{target.videoCount > 0 ? target.videoCount : target.imageCount}</strong>
+                  <span>{target.videoCount > 0 ? 'Videos' : 'Images'}</span>
+                </div>
+                <div className="preview-stat">
+                  <strong>
+                    {target.remainingCharacters === null ? 'Open' : target.remainingCharacters}
+                  </strong>
+                  <span>{target.remainingCharacters === null ? 'Limit' : 'Chars left'}</span>
+                </div>
               </div>
               <div
                 className={
@@ -874,6 +984,7 @@ function HistoryView({
             onClick={onClearHistory}
             disabled={jobs.length === 0 || clearing}
           >
+            <UiIcon name="trash" />
             {clearing ? 'Clearing…' : 'Clear history'}
           </button>
         </div>
@@ -1060,4 +1171,185 @@ function buildAccountStatuses(accounts: Record<PlatformId, PlatformAccount | und
     instagram: accounts.instagram?.status ?? 'disconnected',
     tiktok: accounts.tiktok?.status ?? 'disconnected',
   } satisfies Record<PlatformId, AccountStatus>;
+}
+
+function PlatformBadge({
+  platform,
+  compact = false,
+}: {
+  platform: PlatformId;
+  compact?: boolean;
+}) {
+  return (
+    <span
+      className={
+        compact
+          ? `platform-badge platform-badge-${platform} platform-badge-compact`
+          : `platform-badge platform-badge-${platform}`
+      }
+    >
+      <PlatformIcon platform={platform} />
+    </span>
+  );
+}
+
+function PlatformIcon({ platform }: { platform: PlatformId }) {
+  switch (platform) {
+    case 'x':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 4 20 20" />
+          <path d="M20 4 4 20" />
+        </svg>
+      );
+    case 'facebook':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13.2 20v-6.2h2.8l.4-3.1h-3.2V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.4c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3v2.1H7v3.1h2.8V20h3.4Z" />
+        </svg>
+      );
+    case 'instagram':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="4.5" y="4.5" width="15" height="15" rx="4.5" />
+          <circle cx="12" cy="12" r="3.5" />
+          <circle cx="16.8" cy="7.4" r="0.8" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'tiktok':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 5.5c.7 1.9 2.2 3.3 4.2 3.8v2.7a7 7 0 0 1-4.2-1.3v4.8a4.8 4.8 0 1 1-4.8-4.8c.4 0 .8 0 1.2.1v2.7a2.3 2.3 0 1 0 1.1 2V4.2H14v1.3Z" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+function readStoredTheme(): ThemeMode {
+  if (typeof window === 'undefined') {
+    return 'light';
+  }
+
+  const stored = window.localStorage.getItem('socialdesk:theme');
+  if (stored === 'light' || stored === 'dark') {
+    return stored;
+  }
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function UiIcon({ name }: { name: IconName }) {
+  const commonProps = {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+
+  switch (name) {
+    case 'dashboard':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="8" height="8" rx="2" {...commonProps} />
+          <rect x="13" y="3" width="8" height="5" rx="2" {...commonProps} />
+          <rect x="13" y="10" width="8" height="11" rx="2" {...commonProps} />
+          <rect x="3" y="13" width="8" height="8" rx="2" {...commonProps} />
+        </svg>
+      );
+    case 'accounts':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M16 19a4 4 0 0 0-8 0" {...commonProps} />
+          <circle cx="12" cy="9" r="4" {...commonProps} />
+          <path d="M5 19h14" {...commonProps} />
+        </svg>
+      );
+    case 'composer':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z" {...commonProps} />
+          <path d="m13.5 6.5 4 4" {...commonProps} />
+        </svg>
+      );
+    case 'scheduled':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="13" r="8" {...commonProps} />
+          <path d="M12 9v4l3 2" {...commonProps} />
+          <path d="M8 3h8" {...commonProps} />
+        </svg>
+      );
+    case 'history':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7" {...commonProps} />
+          <path d="M3 4v5h5" {...commonProps} />
+          <path d="M12 7v5l3 2" {...commonProps} />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v4" {...commonProps} />
+          <path d="M12 17v4" {...commonProps} />
+          <path d="M4.9 6.3l2.8 2.1" {...commonProps} />
+          <path d="m16.3 15.6 2.8 2.1" {...commonProps} />
+          <path d="M3 12h4" {...commonProps} />
+          <path d="M17 12h4" {...commonProps} />
+          <path d="m4.9 17.7 2.8-2.1" {...commonProps} />
+          <path d="m16.3 8.4 2.8-2.1" {...commonProps} />
+          <circle cx="12" cy="12" r="3" {...commonProps} />
+        </svg>
+      );
+    case 'sun':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" {...commonProps} />
+          <path d="M12 2v3" {...commonProps} />
+          <path d="M12 19v3" {...commonProps} />
+          <path d="m4.9 4.9 2.1 2.1" {...commonProps} />
+          <path d="m17 17 2.1 2.1" {...commonProps} />
+          <path d="M2 12h3" {...commonProps} />
+          <path d="M19 12h3" {...commonProps} />
+          <path d="m4.9 19.1 2.1-2.1" {...commonProps} />
+          <path d="m17 7 2.1-2.1" {...commonProps} />
+        </svg>
+      );
+    case 'moon':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z" {...commonProps} />
+        </svg>
+      );
+    case 'refresh':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 6v6h-6" {...commonProps} />
+          <path d="M20 12a8 8 0 1 1-2.3-5.7L20 8" {...commonProps} />
+        </svg>
+      );
+    case 'trash':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16" {...commonProps} />
+          <path d="M10 11v6" {...commonProps} />
+          <path d="M14 11v6" {...commonProps} />
+          <path d="M6 7l1 13h10l1-13" {...commonProps} />
+          <path d="M9 4h6l1 3H8l1-3Z" {...commonProps} />
+        </svg>
+      );
+    case 'alert':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m12 3 9 16H3l9-16Z" {...commonProps} />
+          <path d="M12 9v4" {...commonProps} />
+          <path d="M12 17h.01" {...commonProps} />
+        </svg>
+      );
+    default:
+      return null;
+  }
 }
