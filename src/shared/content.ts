@@ -45,15 +45,14 @@ export const platformDefinitions: PlatformDefinitionMap = {
   tiktok: {
     id: 'tiktok',
     displayName: 'TikTok',
-    description: 'Scaffolded only in v1. Cross-post publishing is intentionally blocked.',
+    description: 'Video-only browser upload flow through TikTok web.',
     badge: 'T',
     textLimit: null,
     minAssets: 1,
-    maxAssets: 1,
+    maxAssets: 0,
     maxVideos: 1,
     allowMixedMedia: false,
-    enabled: false,
-    defaultBlockedReason: 'TikTok is scaffolded but excluded from the unified v1 publish flow.',
+    enabled: true,
   },
 };
 
@@ -97,6 +96,14 @@ export function buildTargetStates(input: ComposerInput): PlatformTargetState[] {
       reasons.push(
         `${definition.displayName} supports up to ${definition.maxVideos} video${definition.maxVideos === 1 ? '' : 's'}.`,
       );
+    }
+
+    if (platform === 'tiktok' && videoCount === 0) {
+      reasons.push('TikTok web posting in this app currently requires exactly one video.');
+    }
+
+    if (platform === 'tiktok' && imageCount > 0) {
+      reasons.push('TikTok web posting in this app does not support image uploads yet.');
     }
 
     if (!definition.allowMixedMedia && imageCount > 0 && videoCount > 0) {

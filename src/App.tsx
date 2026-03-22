@@ -50,6 +50,7 @@ export default function App() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>(['x', 'facebook', 'instagram']);
   const [publishMode, setPublishMode] = useState<PublishMode>('now');
   const [scheduledFor, setScheduledFor] = useState(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm'));
+  const [postingStep, setPostingStep] = useState(0);
 
   useEffect(() => {
     void loadSnapshot();
@@ -91,6 +92,23 @@ export default function App() {
       return allowed;
     });
   }, [connectedPlatformIds]);
+
+  const isPublishing = busy === 'Publishing post';
+
+  useEffect(() => {
+    if (!isPublishing) {
+      setPostingStep(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setPostingStep((current) => (current + 1) % postingSteps.length);
+    }, 1200);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isPublishing]);
 
   async function loadSnapshot() {
     setLoading(true);
@@ -203,6 +221,13 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      {isPublishing ? (
+        <PostingOverlay
+          step={postingSteps[postingStep]}
+          selectedPlatforms={selectedPlatforms}
+          assets={assets}
+        />
+      ) : null}
       <aside className="sidebar">
         <div className="brand-block">
           <span className="brand-mark">SD</span>
@@ -352,6 +377,41 @@ function DashboardView({ snapshot }: { snapshot: AppSnapshot }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function PostingOverlay({
+  step,
+  selectedPlatforms,
+  assets,
+}: {
+  step: string;
+  selectedPlatforms: PlatformId[];
+  assets: ImportedAsset[];
+}) {
+  const imageCount = assets.filter((asset) => asset.mediaKind === 'image').length;
+  const videoCount = assets.filter((asset) => asset.mediaKind === 'video').length;
+
+  return (
+    <div className="posting-overlay">
+      <div className="posting-card">
+        <div className="posting-spinner" aria-hidden="true">
+          <span className="posting-ring posting-ring-one" />
+          <span className="posting-ring posting-ring-two" />
+          <span className="posting-core" />
+        </div>
+        <p className="eyebrow">Publishing</p>
+        <h2>Sending your post out now</h2>
+        <p className="posting-step">{step}</p>
+        <div className="posting-track">
+          <span className="posting-bar" />
+        </div>
+        <div className="posting-meta">
+          <span>{selectedPlatforms.map((platform) => platformDefinitions[platform].displayName).join(' · ')}</span>
+          <span>{buildMediaSelectionMessage(imageCount, videoCount).replace(' selected.', '')}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -815,8 +875,17 @@ function buildMediaSelectionMessage(imageCount: number, videoCount: number) {
   if (videoCount > 0) {
     parts.push(`${videoCount} video${videoCount === 1 ? '' : 's'}`);
   }
+  if (parts.length === 0) {
+    return 'Text only';
+  }
   return `${parts.join(' and ')} selected.`;
 }
+
+const postingSteps = [
+  'Preparing browser sessions',
+  'Uploading media',
+  'Finalizing post requests',
+];
 
 function buildPrimaryAccounts(accounts: PlatformAccount[]) {
   const result: Record<PlatformId, PlatformAccount | undefined> = {

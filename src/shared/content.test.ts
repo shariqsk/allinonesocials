@@ -56,7 +56,7 @@ describe('buildTargetStates', () => {
 });
 
 describe('validateComposer', () => {
-  it('rejects tiktok from the unified v1 flow', () => {
+  it('rejects image-only posts on TikTok', () => {
     const result = validateComposer({
       body: 'Launching soon',
       assets: [
@@ -73,6 +73,25 @@ describe('validateComposer', () => {
     });
 
     expect(result.valid).toBe(false);
-    expect(result.message).toContain('TikTok is scaffolded');
+    expect(result.message).toContain('requires exactly one video');
+  });
+
+  it('allows a single TikTok video', () => {
+    const result = validateComposer({
+      body: 'Launching soon',
+      assets: [
+        {
+          id: 'asset-1',
+          path: '/tmp/launch.mp4',
+          name: 'launch.mp4',
+          size: 1234,
+          mimeType: 'video/mp4',
+          mediaKind: 'video',
+        },
+      ],
+      selectedPlatforms: ['tiktok'],
+    });
+
+    expect(result.valid).toBe(true);
   });
 });

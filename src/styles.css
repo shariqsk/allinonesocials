@@ -49,6 +49,98 @@ textarea {
   min-height: 100vh;
 }
 
+.posting-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 16, 12, 0.36);
+  backdrop-filter: blur(10px);
+}
+
+.posting-card {
+  width: min(520px, calc(100vw - 48px));
+  padding: 32px;
+  border-radius: 28px;
+  background: rgba(255, 252, 245, 0.92);
+  border: 1px solid rgba(28, 24, 19, 0.08);
+  box-shadow: 0 28px 64px rgba(18, 15, 11, 0.18);
+  text-align: center;
+}
+
+.posting-card h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  font-size: 2rem;
+}
+
+.posting-spinner {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  margin: 0 auto 20px;
+}
+
+.posting-ring,
+.posting-core {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+}
+
+.posting-ring-one {
+  border: 2px solid rgba(14, 19, 24, 0.12);
+  border-top-color: rgba(14, 19, 24, 0.9);
+  animation: spin 1.2s linear infinite;
+}
+
+.posting-ring-two {
+  inset: 12px;
+  border: 2px solid rgba(184, 121, 54, 0.12);
+  border-bottom-color: rgba(184, 121, 54, 0.92);
+  animation: spinReverse 1.6s linear infinite;
+}
+
+.posting-core {
+  inset: 34px;
+  background: radial-gradient(circle at 30% 30%, #f7ddba 0%, #b87936 60%, #3a2c20 100%);
+  animation: pulseGlow 1.4s ease-in-out infinite;
+}
+
+.posting-step {
+  margin: 10px 0 14px;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.posting-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(28, 24, 19, 0.08);
+}
+
+.posting-bar {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3a2c20 0%, #b87936 100%);
+  animation: glide 1.25s ease-in-out infinite;
+}
+
+.posting-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .sidebar {
   border-right: 1px solid var(--line);
   padding: 28px 22px;
@@ -487,5 +579,44 @@ textarea {
   .composer-layout,
   .account-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinReverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes glide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(300%);
   }
 }
